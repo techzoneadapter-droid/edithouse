@@ -518,8 +518,7 @@ export default function HomePage() {
             </button>
           ) : (
             <div className="image-stage">
-              <MaskEditor image={originalImage} result={renderedImage} surfaceKey={selectedStructure?.id || ""} mask={selectedStructure?.mask} hoverMask={structures.find(s=>s.id===hoveredId)?.mask} selectionMasks={structures.filter(s=>choices[s.id]?.enabled).map(s=>s.mask)} onChange={changeMask} disabled={rendering}/>
-              {rendering && <div className="working-overlay"><div className="working-card"><LoaderCircle className="spin" size={27}/><strong>Đang cập nhật màu…</strong></div></div>}
+              <MaskEditor image={originalImage} result={renderedImage} surfaceKey={selectedStructure?.id || ""} mask={selectedStructure?.mask} hoverMask={structures.find(s=>s.id===hoveredId)?.mask} selectionMasks={structures.filter(s=>choices[s.id]?.enabled).map(s=>s.mask)} onChange={changeMask} disabled={analyzing}/>
               {analyzing && <div className="analyze-floating" role="status"><LoaderCircle className="spin" size={16}/><span>Đang đọc kết cấu công trình…</span><button onClick={cancelAnalyze}>Hủy nhận diện</button></div>}
             </div>
           )}
