@@ -1094,3 +1094,63 @@ button:disabled { cursor: not-allowed; opacity: .45; }
   min-width: 72px;
   height: 30px;
 }
+
+/* EditHouse direct layer editor */
+.editor-statusbar {
+  justify-content: space-between;
+  min-height: 58px;
+}
+.editor-selection-status {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.editor-selection-status > svg {
+  flex: 0 0 auto;
+  color: var(--accent-2);
+}
+.editor-selection-status > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.editor-selection-status strong {
+  font-size: 11px;
+  color: #eef2f6;
+}
+.editor-selection-status small {
+  font-size: 9px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.live-preview-status {
+  flex: 0 0 auto;
+  height: 30px;
+  padding: 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid #2a343d;
+  border-radius: 999px;
+  background: #101419;
+  color: #aeb8c2;
+  font-size: 9.5px;
+}
+.live-preview-status.working {
+  border-color: #3b5d9b;
+  color: #c7d8ff;
+}
+.live-preview-status .status-dot {
+  width: 7px;
+  height: 7px;
+}
+.structure-item .check-box.checked {
+  box-shadow: 0 0 0 2px rgba(93,140,255,.13);
+}
+.structure-item:has(.check-box.checked) {
+  background: rgba(58,92,145,.09);
+}
