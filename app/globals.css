@@ -1154,3 +1154,17 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .structure-item:has(.check-box.checked) {
   background: rgba(58,92,145,.09);
 }
+
+/* Layer editor controls */
+.layer-selection-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.layer-selection-actions .tool-btn {
+  justify-content: center;
+  min-width: 0;
+}
+.layer-selection-actions .tool-btn:last-child {
+  grid-column: 1 / -1;
+}
