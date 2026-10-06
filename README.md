@@ -1,4 +1,4 @@
-﻿# EditHouse
+# EditHouse
 
 Editor phối màu sơn và vật liệu trên ảnh công trình. Chạy `npm install`, `npm run dev`, mở http://localhost:3000.
 
@@ -20,7 +20,7 @@ Tải ảnh, nhận diện cấu kiện hoặc thêm vùng thủ công khi chưa
 
 Render gửi ảnh gốc và mask từng bề mặt. Server kiểm tra mask trước khi gọi AI, ghép kết quả trong hợp mask và xuất PNG. Pixel ngoài mask giữ nguyên so với ảnh đầu vào đã tối ưu ở browser (cạnh dài tối đa 2200px). Mỗi bề mặt có màu, hệ sơn và hiệu ứng riêng.
 
-Dự án tự lưu trong IndexedDB: ảnh, cấu kiện, mask, lựa chọn, lịch sử, catalog và phương án. Có lưu/nhân bản/đổi tên/xóa/mở phương án và so sánh ảnh. Dữ liệu gắn với browser/origin, chưa đồng bộ cloud.
+Dự án tự lưu trong IndexedDB: ảnh, cấu kiện, mask, lựa chọn, lịch sử và phương án. Có lưu/nhân bản/đổi tên/xóa/mở phương án và so sánh ảnh. Dữ liệu gắn với browser/origin, chưa đồng bộ cloud.
 
 ## Catalog
 
@@ -30,7 +30,7 @@ Nhập CSV UTF-8 hoặc XLSX (worksheet đầu), tối đa 25 MB / 100.000 màu.
 brand,collection,color_name,color_code,hex,rgb,category,finish,material
 ```
 
-brand, color_name, color_code bắt buộc; cần hex hoặc rgb. HEX sáu chữ số, RGB dạng "12,34,56". Material: exterior, interior, waterproof, stone, concrete, stucco, metal, wood. Mã nhập được giữ nguyên, không tự tạo mã chính hãng. Màu sẵn có là màu mô phỏng EditHouse. Có lọc hãng/collection/tone, tìm kiếm, yêu thích, gần đây, phân trang. OCR ảnh trả thông tin đọc được và HEX ước tính, cần kiểm tra trước khi dùng.
+brand, color_name, color_code bắt buộc; cần hex hoặc rgb. HEX sáu chữ số, RGB dạng "12,34,56". Material: exterior, interior, waterproof, stone, concrete, stucco, metal, wood. Mã nhập được giữ nguyên, không tự tạo mã chính hãng. Màu sẵn có là màu mô phỏng EditHouse. Có lọc hãng/collection/tone, tìm kiếm, yêu thích, gần đây, phân trang. Bảng màu lưu độc lập trong IndexedDB `edithouse-catalog`. Palette mở quản lý kể cả chưa có ảnh công trình. Luồng chính nhập nhiều ảnh: Experiential CATALOG_OCR đọc hãng, collection, mã nguyên bản, tên và bounding box; code sample pixel trong ô màu để lấy RGB/HEX. Preview cho sửa OCR và chọn màu trước khi lưu; mã giữ nguyên cả dấu cách, / và -. Reset project không xóa bảng màu.
 
 ## Kiểm tra
 

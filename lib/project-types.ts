@@ -17,6 +17,9 @@ export type SurfaceChoice = {
   customHex?: string;
   customCode?: string;
   brand: string;
+  collection?: string;
+  colorCode?: string;
+  hex?: string;
   finish?: string;
 };
 

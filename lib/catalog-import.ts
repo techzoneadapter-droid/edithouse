@@ -21,11 +21,12 @@ export function importRows(rows: string[][]): PaintColor[] {
   rows.forEach((row,index)=>{
     if(!row.some(v=>v.trim())) return;
     const get=(key:string)=>String(row[headers.indexOf(key)]||'').trim();
+    const code=String(row[headers.indexOf('color_code')]||'');
     let hex=get('hex'); if(hex && !hex.startsWith('#')) hex='#'+hex;
     if(!hex && get('rgb')) { const rgb=get('rgb').replace(/rgb|[()]/gi,'').split(/[,;\s]+/).filter(Boolean).map(Number); if(rgb.length===3 && rgb.every(n=>Number.isInteger(n)&&n>=0&&n<=255)) hex='#'+rgb.map(n=>n.toString(16).padStart(2,'0')).join(''); }
-    if(!/^#[0-9a-f]{6}$/i.test(hex) || !get('brand') || !get('color_name') || !get('color_code')) throw new Error('Dòng '+(index+2)+': cần hãng, tên, mã và HEX/RGB hợp lệ.');
+    if(!/^#[0-9a-f]{6}$/i.test(hex) || !get('brand') || !code.trim()) throw new Error('Dòng '+(index+2)+': cần hãng, mã và HEX/RGB hợp lệ.');
     const material=get('material')||'exterior'; if(!materials.includes(material as PaintMaterial)) throw new Error('Dòng '+(index+2)+': material không hợp lệ.');
-    colors.push({id:JSON.stringify([get('brand'),get('collection'),get('color_code'),material]),brand:get('brand'),collection:get('collection'),name:get('color_name'),code:get('color_code'),hex:hex.toUpperCase(),family:get('category'),finish:get('finish'),material:material as PaintMaterial});
+    colors.push({id:JSON.stringify([get('brand'),get('collection'),code,material]),brand:get('brand'),collection:get('collection'),name:get('color_name'),code,hex:hex.toUpperCase(),family:get('category'),finish:get('finish'),material:material as PaintMaterial});
   });
   return [...new Map(colors.map(c=>[c.id,c])).values()];
 }

@@ -9,6 +9,8 @@ export type PaintMaterial =
   | "wood";
 
 export type PaintColor = {
+  brandId?: string;
+  collectionId?: string;
   id: string;
   name: string;
   code: string;
