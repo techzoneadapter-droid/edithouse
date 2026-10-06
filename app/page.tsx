@@ -58,13 +58,14 @@ type AppView = "editor" | "catalog" | "layers" | "ai" | "settings";
 export default function HomePage() {
   const [appView,setAppView]=useState<AppView>("editor");
   const analyzeAbortRef=useRef<AbortController|null>(null);
+  const previewAbortRef=useRef<AbortController|null>(null);
   const layerListRef=useRef<HTMLDivElement>(null);
   const manualRevisionRef=useRef(0);
   const [catalogData,setCatalogData]=useState<CatalogSnapshot>(emptyCatalog);
   const [catalogReady,setCatalogReady]=useState(false);
   useEffect(()=>{loadCatalog().then(setCatalogData).catch(e=>setError(e.message)).finally(()=>setCatalogReady(true));},[]);
   useEffect(()=>{if(appView==='layers')layerListRef.current?.focus();},[appView]);
-  useEffect(()=>()=>analyzeAbortRef.current?.abort(),[]);
+  useEffect(()=>()=>{analyzeAbortRef.current?.abort();previewAbortRef.current?.abort();},[]);
 
   const [aiStatus, setAIStatus] = useState<any>(null);
   useEffect(()=>{fetch("/api/ai/status").then(r=>r.json()).then(setAIStatus).catch(()=>{});},[]);
@@ -129,10 +130,16 @@ export default function HomePage() {
       const data=await response.json();if(!response.ok)throw new Error(data.error||'Không thể phân tích công trình.');
       if(controller.signal.aborted||analyzeAbortRef.current!==controller)return;
       const result=data as AnalyzeResult;
-      setAnalysis(previous=>({...result,structures:[...result.structures.map(surface=>previous?.structures.find(s=>s.id===surface.id)||surface),...(previous?.structures||[]).filter(surface=>!result.structures.some(s=>s.id===surface.id))]}));
-      setChoices(previous=>{const next={...previous};for(const surface of result.structures)next[surface.id]??=makeChoice(surface);return next;});
-      setSelectedId(previous=>previous||result.structures[0]?.id||'');setUploadStage(4);
-    }catch(e){if(analyzeAbortRef.current===controller){if(timedOut)setError('AI nhận diện quá thời gian.');else if(!controller.signal.aborted)setError(e instanceof Error?e.message:'Không thể phân tích công trình.');}}
+      // A fresh analysis must replace old geometry completely. Reusing surface-1/surface-2
+      // from an older run was the reason stale/garbled layers survived "Tách lại vùng".
+      setAnalysis(result);
+      setChoices(Object.fromEntries(result.structures.map(surface=>[surface.id,makeChoice(surface)])));
+      setSelectedId(result.structures[0]?.id||'');
+      setRenderedImage('');
+      setMaskPast([]);
+      setMaskFuture([]);
+      setUploadStage(4);
+    }catch(e){if(analyzeAbortRef.current===controller){if(timedOut)setError('Đọc kết cấu quá thời gian.');else if(!controller.signal.aborted)setError(e instanceof Error?e.message:'Không thể phân tích công trình.');}}
     finally{clearTimeout(timer);if(analyzeAbortRef.current===controller){analyzeAbortRef.current=null;setAnalyzing(false);}}
   }
   async function analyzeSurface(){
@@ -143,7 +150,7 @@ export default function HomePage() {
       if(controller.signal.aborted||analyzeAbortRef.current!==controller)return;
       if(revision!==manualRevisionRef.current){setError('Đã giữ mask bạn vừa chỉnh; bỏ qua kết quả AI cũ.');return;}
       setAnalysis(previous=>previous?{...previous,structures:previous.structures.map(s=>s.id===target.id?{...s,mask:{polygons:result.polygons,strokes:[]}}:s)}:previous);setRenderedImage('');
-    }catch(e){if(analyzeAbortRef.current===controller){if(timedOut)setError('AI nhận diện quá thời gian.');else if(!controller.signal.aborted)setError(e instanceof Error?e.message:'Không phân tích được mask.');}}
+    }catch(e){if(analyzeAbortRef.current===controller){if(timedOut)setError('Đọc kết cấu quá thời gian.');else if(!controller.signal.aborted)setError(e instanceof Error?e.message:'Không phân tích được mask.');}}
     finally{clearTimeout(timer);if(analyzeAbortRef.current===controller){analyzeAbortRef.current=null;setAnalyzing(false);}}
   }
 
@@ -184,28 +191,52 @@ export default function HomePage() {
     }));
   }
 
+  function editableTargets() {
+    const checked = structures.filter(structure => choices[structure.id]?.enabled);
+    if (checked.length) return checked;
+    return selectedStructure ? [selectedStructure] : [];
+  }
+
   function chooseColor(color: PaintColor) {
     setRecent(prev=>[color.id,...prev.filter(id=>id!==color.id)].slice(0,30));
-    if (!selectedStructure) return;
-    updateChoice(selectedStructure.id, {
-      enabled: true,
-      colorId: color.id,
-      brand: color.brand || "EditHouse",
-      collection: color.collection || "",
-      colorCode: color.code,
-      hex: color.hex,
-      customCode: undefined,
-      customHex: undefined,
-      material: selectedChoice?.material || color.material
+    const targets=editableTargets();
+    if(!targets.length)return;
+    setChoices(prev=>{
+      const next={...prev};
+      for(const target of targets){
+        const current=next[target.id]||makeChoice(target);
+        next[target.id]={
+          ...current,
+          enabled:true,
+          colorId:color.id,
+          brand:color.brand||"EditHouse",
+          collection:color.collection||"",
+          colorCode:color.code,
+          hex:color.hex,
+          customCode:undefined,
+          customHex:undefined,
+          material:current.material||color.material
+        };
+      }
+      return next;
     });
   }
 
   function chooseCustomColor(hex: string) {
-    if (!selectedStructure) return;
-    updateChoice(selectedStructure.id, {
-      enabled: true,
-      colorId: undefined,
-      customHex: normalizeHex(hex)
+    const targets=editableTargets();
+    if(!targets.length)return;
+    const normalized=normalizeHex(hex);
+    setChoices(prev=>{
+      const next={...prev};
+      for(const target of targets){
+        next[target.id]={
+          ...(next[target.id]||makeChoice(target)),
+          enabled:true,
+          colorId:undefined,
+          customHex:normalized
+        };
+      }
+      return next;
     });
   }
 
@@ -227,10 +258,7 @@ export default function HomePage() {
   }
 
   async function renderDesign() {
-    if (!originalImage) {
-      setError("Hãy tải ảnh công trình trước.");
-      return;
-    }
+    if (!originalImage || !analysis) return;
 
     const assignments = structures
       .filter((structure) => choices[structure.id]?.enabled)
@@ -255,10 +283,15 @@ export default function HomePage() {
       });
 
     if (!assignments.length) {
-      setError("Hãy bật ít nhất một chi tiết cần phối màu.");
+      previewAbortRef.current?.abort();
+      setRenderedImage("");
+      setRendering(false);
       return;
     }
 
+    previewAbortRef.current?.abort();
+    const controller=new AbortController();
+    previewAbortRef.current=controller;
     setRendering(true);
     setError("");
     try {
@@ -268,18 +301,22 @@ export default function HomePage() {
         body: JSON.stringify({
           imageDataUrl: originalImage,
           assignments: await Promise.all(assignments.map(async ({mask, ...assignment}) => ({...assignment, maskDataUrl: await rasterizeMask(mask, originalImage)}))),
-          preserveArchitecture: true,
-          customInstruction
-        })
+          preserveArchitecture: true
+        }),
+        signal:controller.signal
       });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Không thể phối màu.");
-      setRenderedImage(data.imageDataUrl);
-      setVariants(prev=>[...prev,{id:crypto.randomUUID(),name:"Render "+(prev.length+1),choices:structuredClone(choices),analysis:structuredClone(analysis),image:data.imageDataUrl}]);
+      if (!response.ok) throw new Error(data.error || "Không thể cập nhật màu.");
+      if(previewAbortRef.current===controller)setRenderedImage(data.imageDataUrl);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Không thể phối màu.");
+      if(!controller.signal.aborted&&previewAbortRef.current===controller){
+        setError(e instanceof Error ? e.message : "Không thể cập nhật màu.");
+      }
     } finally {
-      setRendering(false);
+      if(previewAbortRef.current===controller){
+        previewAbortRef.current=null;
+        setRendering(false);
+      }
     }
   }
 
@@ -308,6 +345,13 @@ export default function HomePage() {
   }
 
   const activeCount = structures.filter((item) => choices[item.id]?.enabled).length;
+
+  // Editor behaviour: changing a checkbox, mask or paint color updates the photo automatically.
+  useEffect(()=>{
+    if(!originalImage||!analysis||analyzing||reading)return;
+    const timer=window.setTimeout(()=>{void renderDesign();},180);
+    return()=>window.clearTimeout(timer);
+  },[originalImage,analysis,choices,analyzing,reading]);
 
   function addManualSurface() {
     manualRevisionRef.current++;
@@ -369,7 +413,7 @@ export default function HomePage() {
             onClick={() => originalImage && analyzeImage(originalImage)}
           >
             {analyzing ? <LoaderCircle className="spin" size={14} /> : <WandSparkles size={14} />}
-            Phân tích lại
+            Tách lại vùng
           </button>
         </div>
 
@@ -412,6 +456,7 @@ export default function HomePage() {
                   className={"check-box " + (choice?.enabled ? "checked" : "")}
                   onClick={(e) => {
                     e.stopPropagation();
+                    setSelectedId(structure.id);
                     updateChoice(structure.id, { enabled: !choice?.enabled });
                   }}
                 >
@@ -441,7 +486,7 @@ export default function HomePage() {
             <span className="status-dot" />
             <div>
               <strong>{analysis?.buildingType || "Dự án mới"}</strong>
-              <small>{originalImage ? activeCount + " bề mặt đang bật" : "Chưa có ảnh công trình"}</small>
+              <small>{originalImage ? activeCount + " vùng đang chọn" : "Chưa có ảnh công trình"}</small>
             </div>
           </div>
 
@@ -454,7 +499,7 @@ export default function HomePage() {
 
         <div className="catalog-view" hidden={appView !== 'catalog'}><CatalogManager catalog={catalogData} ready={catalogReady} onChange={setCatalogData}/></div>
         <div className="layers-view" hidden={appView !== 'layers'}><h1>{structures.length?'KẾT CẤU CÔNG TRÌNH':'CHƯA CÓ KẾT CẤU'}</h1>
-          <button disabled={!originalImage||analyzing||rendering} onClick={()=>analyzeImage(originalImage)}>AI nhận diện</button>
+          <button disabled={!originalImage||analyzing||rendering} onClick={()=>analyzeImage(originalImage)}>Tách vùng tự động</button>
           <button disabled={!originalImage||rendering} onClick={addManualSurface}>+ Thêm vùng thủ công</button>
           {!originalImage&&<button onClick={()=>fileInput.current?.click()}>Tải ảnh công trình</button>}
           {structures.map(s=><button key={s.id} onClick={()=>{setSelectedId(s.id);setAppView('editor');}}>{s.name}</button>)}
@@ -464,14 +509,14 @@ export default function HomePage() {
             <button className="canvas-empty" onClick={() => fileInput.current?.click()}>
               <span className="big-upload"><Upload size={28} /></span>
               <strong>Thả ảnh công trình vào đây</strong>
-              <p>AI sẽ tự nhận diện toàn bộ kết cấu để bạn chọn loại sơn, màu và hiệu ứng cho từng chi tiết.</p>
+              <p>EditHouse sẽ tách công trình thành các layer để bạn chọn vùng và đổi màu như một trình chỉnh ảnh.</p>
               <span className="primary-mini">Chọn ảnh</span>
             </button>
           ) : (
             <div className="image-stage">
               <MaskEditor image={originalImage} result={renderedImage} surfaceKey={selectedStructure?.id || ""} mask={selectedStructure?.mask} hoverMask={structures.find(s=>s.id===hoveredId)?.mask} onChange={changeMask} disabled={rendering}/>
-              {rendering && <div className="working-overlay"><div className="working-card"><LoaderCircle className="spin" size={27}/><strong>Đang phối màu theo mask…</strong></div></div>}
-              {analyzing && <div className="analyze-floating" role="status"><LoaderCircle className="spin" size={16}/><span>AI đang nhận diện công trình…</span><button onClick={cancelAnalyze}>Hủy nhận diện</button></div>}
+              {rendering && <div className="working-overlay"><div className="working-card"><LoaderCircle className="spin" size={27}/><strong>Đang cập nhật màu…</strong></div></div>}
+              {analyzing && <div className="analyze-floating" role="status"><LoaderCircle className="spin" size={16}/><span>Đang đọc kết cấu công trình…</span><button onClick={cancelAnalyze}>Hủy nhận diện</button></div>}
             </div>
           )}
 
@@ -479,47 +524,24 @@ export default function HomePage() {
             <div className="error-toast">
               <X size={16} />
               <span>{error}</span>
-              {error === "AI nhận diện quá thời gian." && <button disabled={analyzing||rendering||!originalImage} onClick={()=>analyzeImage(originalImage)}>Thử lại</button>}
+              {error === "Đọc kết cấu quá thời gian." && <button disabled={analyzing||rendering||!originalImage} onClick={()=>analyzeImage(originalImage)}>Thử lại</button>}
               <button onClick={() => setError("")}><X size={14} /></button>
             </div>
           )}
         </div>
 
-        <footer className="bottom-bar">
-          <div className="quality-control">
-            <span>AI · {aiStatus?.connected ? 'Experiential Labs · Connected' : 'Chưa kết nối'}</span>
-            <div className="segment">
-              <button onClick={() => setAppView("settings")} title={`Vision: ${aiStatus?.selected?.vision || '—'} · Render: ${aiStatus?.selected?.render || '—'}`}>
-                <Settings size={13} /> {aiStatus?.mode === 'economy' ? 'Tiết kiệm' : aiStatus?.mode === 'quality' ? 'Chất lượng cao' : 'Cân bằng'}
-              </button>
+        <footer className="bottom-bar editor-statusbar">
+          <div className="editor-selection-status">
+            <Layers3 size={16}/>
+            <div>
+              <strong>{activeCount ? activeCount + " vùng đang được chọn" : "Chọn vùng cần đổi màu"}</strong>
+              <small>{activeCount ? "Bấm màu bên phải để áp dụng ngay cho tất cả vùng đã tích." : "Tích checkbox layer bên trái, hoặc chọn một layer rồi bấm màu."}</small>
             </div>
           </div>
-
-          <label className="lock-toggle">
-            <input
-              type="checkbox"
-              checked={true}
-              disabled
-            />
-            <span />
-            Khóa kiến trúc
-          </label>
-
-          <input
-            className="instruction-input"
-            value={customInstruction}
-            onChange={(e) => setCustomInstruction(e.target.value)}
-            placeholder="Ghi chú thêm, ví dụ: phào trắng hơn 10%, mảng cột dùng giả đá..."
-          />
-
-          <button
-            className="render-btn"
-            disabled={!originalImage || rendering || analyzing}
-            onClick={renderDesign}
-          >
-            {rendering ? <LoaderCircle className="spin" size={18} /> : <PaintBucket size={18} />}
-            {rendering ? "Đang phối..." : "Phối màu chuẩn"}
-          </button>
+          <div className={"live-preview-status " + (rendering ? "working" : "")}>
+            {rendering ? <LoaderCircle className="spin" size={15}/> : <span className="status-dot"/>}
+            {rendering ? "Đang cập nhật" : "Xem trước trực tiếp"}
+          </div>
         </footer>
       </section>
 
@@ -534,14 +556,14 @@ export default function HomePage() {
             <div className="selected-surface">
               <span className="selected-icon"><Layers3 size={17} /></span>
               <div>
-                <small>Đang chỉnh</small>
-                <strong>{selectedStructure.name}</strong>
+                <small>{activeCount>1 ? activeCount+" vùng đã tích" : "Layer đang chỉnh"}</small>
+                <strong>{activeCount>1 ? "Áp dụng màu cho nhiều vùng" : selectedStructure.name}</strong>
               </div>
               <span className="confidence">{Math.round(selectedStructure.confidence * 100)}%</span>
             </div>
 
             <label className="field-label">Thương hiệu / catalogue</label>
-            <button className="icon-btn" disabled={analyzing||rendering} onClick={analyzeSurface}>AI tìm lại mask vùng này</button>
+            <button className="icon-btn" disabled={analyzing||rendering} onClick={analyzeSurface}>Tìm lại vùng này</button>
             <div className="select-wrap">
               <select
                 aria-label="Hãng sơn"
