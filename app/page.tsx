@@ -469,7 +469,7 @@ export default function HomePage() {
             </button>
           ) : (
             <div className="image-stage">
-              <MaskEditor image={originalImage} result={renderedImage} mask={selectedStructure?.mask} hoverMask={structures.find(s=>s.id===hoveredId)?.mask} onChange={changeMask} disabled={rendering}/>
+              <MaskEditor image={originalImage} result={renderedImage} surfaceKey={selectedStructure?.id || ""} mask={selectedStructure?.mask} hoverMask={structures.find(s=>s.id===hoveredId)?.mask} onChange={changeMask} disabled={rendering}/>
               {rendering && <div className="working-overlay"><div className="working-card"><LoaderCircle className="spin" size={27}/><strong>Đang phối màu theo mask…</strong></div></div>}
               {analyzing && <div className="analyze-floating" role="status"><LoaderCircle className="spin" size={16}/><span>AI đang nhận diện công trình…</span><button onClick={cancelAnalyze}>Hủy nhận diện</button></div>}
             </div>
@@ -518,7 +518,7 @@ export default function HomePage() {
             onClick={renderDesign}
           >
             {rendering ? <LoaderCircle className="spin" size={18} /> : <PaintBucket size={18} />}
-            {rendering ? "Đang phối..." : "Phối màu AI"}
+            {rendering ? "Đang phối..." : "Phối màu chuẩn"}
           </button>
         </footer>
       </section>
