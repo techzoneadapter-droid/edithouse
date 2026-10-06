@@ -408,7 +408,7 @@ export default function HomePage() {
 
         <div className="section-head">
           <div>
-            <span>Kết cấu nhận diện</span>
+            <span>Layer công trình</span>
             <b>{structures.length}</b>
           </div>
           <button
@@ -421,9 +421,12 @@ export default function HomePage() {
           </button>
         </div>
 
-        {analysis?.summary && <p className="analysis-summary">{analysis.summary}</p>}
         {uploadStage>0 && <ol className="upload-progress">{["Đang đọc ảnh","Đang nhận diện kiến trúc","Đang tách bề mặt","Hoàn tất"].map((label,i)=><li key={label} className={uploadStage===i+1?'active':''}>{uploadStage>i+1?'✓ ':''}{label}</li>)}</ol>}
-        <button className="tool-btn" disabled={!originalImage || rendering} onClick={addManualSurface}>+ Thêm vùng thủ công</button>
+        <div className="layer-selection-actions">
+          <button className="tool-btn" disabled={!structures.length} onClick={()=>setChoices(prev=>Object.fromEntries(structures.map(s=>[s.id,{...(prev[s.id]||makeChoice(s)),enabled:true}])))}>Chọn tất cả</button>
+          <button className="tool-btn" disabled={!activeCount} onClick={()=>setChoices(prev=>Object.fromEntries(Object.entries(prev).map(([id,choice])=>[id,{...choice,enabled:false}])))}>Bỏ chọn</button>
+          <button className="tool-btn" disabled={!originalImage || rendering} onClick={addManualSurface}>+ Vùng thủ công</button>
+        </div>
 
         <VariantsPanel variants={variants} disabled={analyzing || rendering || !originalImage} onSave={()=>setVariants(prev=>[...prev,{id:crypto.randomUUID(),name:"Phuong an "+(prev.length+1),choices:structuredClone(choices),analysis:structuredClone(analysis),image:renderedImage}])} onLoad={v=>{setChoices(structuredClone(v.choices));setAnalysis(structuredClone(v.analysis));setRenderedImage(v.image);setSelectedId(v.analysis?.structures[0]?.id||"");setMaskPast([]);setMaskFuture([]);}} onChange={setVariants}/>
         <div className="structure-list" ref={layerListRef} tabIndex={-1}>
@@ -562,7 +565,6 @@ export default function HomePage() {
                 <small>{activeCount>1 ? activeCount+" vùng đã tích" : "Layer đang chỉnh"}</small>
                 <strong>{activeCount>1 ? "Áp dụng màu cho nhiều vùng" : selectedStructure.name}</strong>
               </div>
-              <span className="confidence">{Math.round(selectedStructure.confidence * 100)}%</span>
             </div>
 
             <label className="field-label">Thương hiệu / catalogue</label>
