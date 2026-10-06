@@ -15,27 +15,116 @@ export default function CatalogManager({catalog,ready,onChange}:Props){
   const brand=catalog.brands.find(b=>b.id===brandId);
   const visible=catalog.colors.filter(c=>(!brandId||c.brandId===brandId)&&(!collectionId||c.collectionId===collectionId)&&(`${c.code} ${c.name} ${catalog.brands.find(b=>b.id===c.brandId)?.name}`).toLowerCase().includes(query.toLowerCase()));
   async function recognize(files:File[]){
-    if(!files.length)return;setBusy(true);setError('');setRows([]);setImages([]);setPreview(false);
-    const controller=new AbortController();cancel.current=controller;const incoming:PreviewColor[]=[],sources:SourceImage[]=[],failures:string[]=[];
+    if(!files.length)return;
+    setBusy(true);setError('');setRows([]);setImages([]);setPreview(false);
+    const controller=new AbortController();cancel.current=controller;
+    const incoming:PreviewColor[]=[],sources:SourceImage[]=[],failures:string[]=[];
+
+    const publishProgress=(message?:string)=>{
+      const merged=deduplicatePreview(incoming);
+      setRows(merged);
+      setImages([...sources]);
+      setPreview(merged.length>0);
+      if(message)setStatus(message);
+      setError(failures.join('\n'));
+      return merged;
+    };
+
+    const analyzeWithTimeout=async(dataUrl:string,timeoutMs:number)=>{
+      const local=new AbortController();
+      const parentAbort=()=>local.abort();
+      controller.signal.addEventListener('abort',parentAbort,{once:true});
+      const timer=window.setTimeout(()=>local.abort(),timeoutMs);
+      try{
+        const response=await fetch('/api/catalog/analyze',{
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({imageDataUrl:dataUrl}),
+          signal:local.signal
+        });
+        const result=await response.json().catch(()=>({}));
+        if(!response.ok)throw new Error(result.error||'Không đọc được bảng màu.');
+        return result;
+      }catch(e){
+        if(controller.signal.aborted)throw e;
+        if(e instanceof DOMException&&e.name==='AbortError')throw new Error('OCR quá 75 giây; đã bỏ qua ảnh này để tiếp tục.');
+        throw e;
+      }finally{
+        window.clearTimeout(timer);
+        controller.signal.removeEventListener('abort',parentAbort);
+      }
+    };
+
     try{
       for(let index=0;index<files.length;index++){
         if(controller.signal.aborted)break;
-        const file=files[index];setStatus(`Đang đọc ảnh ${index+1}/${files.length} · ${file.name}`);
+        const file=files[index];
+        setStatus(`Đang đọc ảnh ${index+1}/${files.length} · ${file.name}`);
         try{
-          const dataUrl=await readCatalogImage(file);setStatus(`Đang đọc ảnh ${index+1}/${files.length} · Đang nhận diện mã màu và lấy màu swatch`);
-          const response=await fetch('/api/catalog/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({imageDataUrl:dataUrl}),signal:AbortSignal.any([controller.signal,AbortSignal.timeout(180000)])});
-          const result=await response.json();if(!response.ok)throw new Error(result.error||'Không đọc được bảng màu.');
-          const source:SourceImage={id:crypto.randomUUID(),name:file.name,dataUrl,createdAt:new Date().toISOString(),pageTitle:result.pageTitle||''};sources.push(source);
-          for(const swatch of result.swatches){incoming.push({id:crypto.randomUUID(),brand:result.brand||'',collection:result.collection||'',code:swatch.code,name:swatch.name,sourceImageId:source.id,sourceBox:swatch.box,confidence:swatch.confidence,rgb:swatch.rgb||[0,0,0],hex:swatch.hex||'',samplingError:swatch.samplingError||undefined,selected:!!swatch.code&&!swatch.samplingError});}
-          setStatus(`Ảnh ${index+1}/${files.length} · Đã lấy pixel ${result.swatches.length} swatch`);
-        }catch(e){if(controller.signal.aborted)break;failures.push(`${file.name}: ${e instanceof Error?e.message:'Không đọc được ảnh.'}`);}
+          const dataUrl=await readCatalogImage(file);
+          setStatus(`Đang đọc ảnh ${index+1}/${files.length} · Đang nhận diện mã màu và lấy màu swatch`);
+          const result=await analyzeWithTimeout(dataUrl,75000);
+          if(!Array.isArray(result.swatches))throw new Error('AI không trả danh sách màu hợp lệ.');
+
+          const source:SourceImage={
+            id:crypto.randomUUID(),
+            name:file.name,
+            dataUrl,
+            createdAt:new Date().toISOString(),
+            pageTitle:result.pageTitle||''
+          };
+          sources.push(source);
+
+          for(const swatch of result.swatches){
+            incoming.push({
+              id:crypto.randomUUID(),
+              brand:result.brand||'',
+              collection:result.collection||'',
+              code:swatch.code||'',
+              name:swatch.name||'',
+              sourceImageId:source.id,
+              sourceBox:swatch.box,
+              confidence:Number(swatch.confidence)||0,
+              rgb:swatch.rgb||[0,0,0],
+              hex:swatch.hex||'',
+              samplingError:swatch.samplingError||undefined,
+              selected:!!swatch.code&&!swatch.samplingError
+            });
+          }
+
+          const merged=publishProgress(
+            `Ảnh ${index+1}/${files.length} · Đã lấy ${result.swatches.length} swatch · Tổng tạm thời ${deduplicatePreview(incoming).length} màu`
+          );
+          const brands=new Set(merged.map(c=>c.brand).filter(Boolean));
+          const collections=new Set(merged.map(c=>c.collection).filter(Boolean));
+          setMergeBrand(brands.size===1?merged.find(c=>c.brand)?.brand||'':'');
+          setMergeCollection(collections.size===1?merged.find(c=>c.collection)?.collection||'':'');
+        }catch(e){
+          if(controller.signal.aborted)break;
+          failures.push(`${file.name}: ${e instanceof Error?e.message:'Không đọc được ảnh.'}`);
+          publishProgress(`Ảnh ${index+1}/${files.length} lỗi, đang tiếp tục ảnh kế tiếp…`);
+        }
       }
-      if(controller.signal.aborted){setStatus('Đã hủy đọc bảng màu.');return;}
-      const merged=deduplicatePreview(incoming);setRows(merged);setImages(sources);setPreview(merged.length>0);
-      const brands=new Set(merged.map(c=>c.brand)),collections=new Set(merged.map(c=>c.collection));
-      setMergeBrand(brands.size===1?merged[0]?.brand||'':'');setMergeCollection(collections.size===1?merged[0]?.collection||'':'');
-      setError(failures.join('\n'));setStatus(`Đã nhận diện ${merged.length} màu từ ${sources.length} ảnh. Kiểm tra trước khi lưu.`);
-    }finally{if(cancel.current===controller)cancel.current=null;setBusy(false);}
+
+      const merged=publishProgress();
+      if(controller.signal.aborted){
+        setStatus(merged.length
+          ? `Đã hủy. Giữ lại ${merged.length} màu đã đọc từ ${sources.length} ảnh.`
+          : 'Đã hủy đọc bảng màu.');
+        return;
+      }
+
+      const brands=new Set(merged.map(c=>c.brand).filter(Boolean));
+      const collections=new Set(merged.map(c=>c.collection).filter(Boolean));
+      setMergeBrand(brands.size===1?merged.find(c=>c.brand)?.brand||'':'');
+      setMergeCollection(collections.size===1?merged.find(c=>c.collection)?.collection||'':'');
+      setStatus(merged.length
+        ? `Đã nhận diện ${merged.length} màu từ ${sources.length}/${files.length} ảnh. Kiểm tra trước khi lưu.`
+        : 'Không nhận diện được màu nào. Hãy thử chụp gần và thẳng trang bảng màu hơn.');
+    }finally{
+      if(cancel.current===controller)cancel.current=null;
+      setBusy(false);
+    }
   }
   function patch(id:string,change:Partial<PreviewColor>){setRows(current=>current.map(row=>row.id===id?{...row,...change}:row));}
   async function save(){setBusy(true);setError('');try{const result=await saveCatalogImport(rows,images);onChange(result);setPreview(false);setRows([]);setImages([]);setStatus('Đã lưu bảng màu độc lập với project.');}catch(e){setError(e instanceof Error?e.message:'Không lưu được bảng màu.');}finally{setBusy(false);}}
