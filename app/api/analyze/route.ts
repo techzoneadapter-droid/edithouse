@@ -1,41 +1,21 @@
-import { validatePolygons } from "@/lib/masks";
+import { validatePolygons, type Point } from "@/lib/masks";
+import {
+  ARCHITECTURE_PARTS,
+  ARCHITECTURE_REASONING_RULES,
+  NON_BUILDING_OCCLUDERS,
+  architectureTaxonomyForPrompt,
+  type ArchitecturePartDefinition
+} from "@/lib/architecture-knowledge";
 import { NextRequest, NextResponse } from "next/server";
 import { splitDataUrl } from "@/lib/image-data";
 import { runRole } from "@/lib/ai/provider";
 import { failure, localRequest } from "@/lib/ai/http";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 75;
 
-const ROLE_NAMES = {
-  "main-wall": "Tường chính",
-  "secondary-wall": "Tường phụ",
-  "accent-wall": "Mảng nhấn",
-  "trim-molding": "Phào / chỉ",
-  "column-beam": "Cột / dầm",
-  "plinth": "Chân tường",
-  "frames": "Khung cửa",
-  "roof-canopy": "Mái / mái che",
-  "metal-railing": "Kim loại / lan can",
-  "fence-gate": "Tường rào / cổng",
-  "other": "Vùng khác"
-} as const;
-
-type SurfaceRole = keyof typeof ROLE_NAMES;
-
-const ROLE_TYPE: Record<SurfaceRole, string> = {
-  "main-wall": "wall",
-  "secondary-wall": "wall",
-  "accent-wall": "wall",
-  "trim-molding": "molding",
-  "column-beam": "column",
-  "plinth": "plinth",
-  "frames": "window-frame",
-  "roof-canopy": "roof",
-  "metal-railing": "metal",
-  "fence-gate": "fence",
-  "other": "other"
-};
+const partKeys = ARCHITECTURE_PARTS.map(part => part.key);
+const exclusionKeys = NON_BUILDING_OCCLUDERS.map(item => item.key);
 
 const schema = {
   type: "object",
@@ -43,31 +23,23 @@ const schema = {
   properties: {
     buildingType: { type: "string" },
     summary: { type: "string" },
-    structures: {
+    parts: {
       type: "array",
-      minItems: 1,
-      maxItems: 16,
+      maxItems: 36,
       items: {
         type: "object",
         additionalProperties: false,
         properties: {
-          role: {
-            type: "string",
-            enum: Object.keys(ROLE_NAMES)
-          },
-          description: { type: "string" },
-          recommendedMaterials: {
-            type: "array",
-            items: {
-              type: "string",
-              enum: ["exterior", "interior", "waterproof", "stone", "concrete", "stucco", "metal", "wood"]
-            }
-          },
+          partKey: { type: "string", enum: partKeys },
+          plane: { type: "string" },
+          confidence: { type: "number", minimum: 0, maximum: 1 },
           polygons: {
             type: "array",
+            maxItems: 40,
             items: {
               type: "array",
               minItems: 3,
+              maxItems: 400,
               items: {
                 type: "array",
                 minItems: 2,
@@ -75,26 +47,82 @@ const schema = {
                 items: { type: "number", minimum: 0, maximum: 1000 }
               }
             }
-          },
-          confidence: { type: "number", minimum: 0, maximum: 1 }
+          }
         },
-        required: ["role", "description", "recommendedMaterials", "confidence", "polygons"]
+        required: ["partKey", "plane", "confidence", "polygons"]
+      }
+    },
+    excludedRegions: {
+      type: "array",
+      maxItems: 50,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          category: { type: "string", enum: exclusionKeys },
+          confidence: { type: "number", minimum: 0, maximum: 1 },
+          polygons: {
+            type: "array",
+            maxItems: 30,
+            items: {
+              type: "array",
+              minItems: 3,
+              maxItems: 300,
+              items: {
+                type: "array",
+                minItems: 2,
+                maxItems: 2,
+                items: { type: "number", minimum: 0, maximum: 1000 }
+              }
+            }
+          }
+        },
+        required: ["category", "confidence", "polygons"]
       }
     }
   },
-  required: ["buildingType", "summary", "structures"]
+  required: ["buildingType", "summary", "parts", "excludedRegions"]
 };
 
-function cleanVietnameseText(value: unknown, fallback: string, max = 110) {
-  const raw = String(value || "")
+function polygonArea(polygon: Point[]) {
+  let area = 0;
+  for (let i = 0; i < polygon.length; i++) {
+    const [x1, y1] = polygon[i];
+    const [x2, y2] = polygon[(i + 1) % polygon.length];
+    area += x1 * y2 - x2 * y1;
+  }
+  return Math.abs(area) / 2;
+}
+
+function polygonsAreaRatio(polygons: Point[][]) {
+  return polygons.reduce((sum, polygon) => sum + polygonArea(polygon), 0) / 1_000_000;
+}
+
+function cleanText(value: unknown, fallback: string, maxLength = 160) {
+  const text = String(value || "")
     .replace(/[\u0000-\u001f]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
-  if (!raw) return fallback;
-  // Reject obvious OCR/model garbage: long symbol runs, CJK/Korean/Cyrillic, code fragments.
-  if (/[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af\u0400-\u04ff]/u.test(raw)) return fallback;
-  if ((raw.match(/[{}<>\\|_=]/g) || []).length >= 2) return fallback;
-  return raw.slice(0, max);
+  if (!text) return fallback;
+  if (/[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af\u0400-\u04ff]/u.test(text)) return fallback;
+  return text.slice(0, maxLength);
+}
+
+function occlusionRank(definition: ArchitecturePartDefinition) {
+  if (!definition.paintable) return 120;
+  switch (definition.family) {
+    case "opening": return 110;
+    case "trim": return 100;
+    case "cladding": return 95;
+    case "balcony": return 90;
+    case "boundary": return 85;
+    case "structure": return 80;
+    case "roof": return 75;
+    case "service": return 70;
+    case "other": return 65;
+    case "envelope": return 20;
+    default: return 10;
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -104,119 +132,144 @@ export async function POST(request: NextRequest) {
     if (!imageDataUrl || typeof imageDataUrl !== "string") {
       return NextResponse.json({ error: "Chưa có ảnh công trình." }, { status: 400 });
     }
-
     splitDataUrl(imageDataUrl);
 
     const prompt = [
-      "Bạn là kiến trúc sư chuyên phối màu sơn công trình thực tế.",
-      "Mục tiêu KHÔNG phải bóc tách mọi vật thể. Mục tiêu là tạo một danh sách NGẮN, dễ dùng cho người thợ sơn.",
+      "Bạn là hệ thống đọc ảnh kiến trúc cho một trình chỉnh màu công trình kiểu Photoshop.",
+      "Không tạo ảnh. Không thiết kế lại. Nhiệm vụ duy nhất là phân rã ngôi nhà thành các vùng chọn/layer hình học chính xác.",
       "",
-      "NGUYÊN TẮC BẮT BUỘC:",
-      "- Chỉ nhận diện những VÙNG LỚN, THỰC SỰ CẦN CHỌN MÀU/VẬT LIỆU.",
-      "- Mục tiêu 4-8 nhóm. Tuyệt đối không vượt quá 10 nhóm có ý nghĩa.",
-      "- Các mảng rời nhau nhưng cùng vai trò và cùng cách sơn phải GỘP chung một role, dùng nhiều polygon trong cùng item.",
-      "- KHÔNG tách từng tầng, từng ô cửa, từng vết bẩn, khe nứt, mảng bê tông loang hay vật thể nhỏ thành một cấu kiện riêng.",
-      "- KHÔNG đọc hoặc chép chữ/biển hiệu/OCR trong ảnh vào tên hay mô tả.",
-      "- KHÔNG sử dụng tiếng Anh, tiếng Trung, tiếng Hàn hoặc chuỗi ký tự lạ trong description. Viết tiếng Việt ngắn gọn.",
-      "- Bỏ qua người, xe, cây, nền sân, bầu trời, máy lạnh, ống nhỏ, dây điện và vật che.",
+      "CÁCH SUY LUẬN NHƯ KIẾN TRÚC SƯ 3D:",
+      "- Đầu tiên xác định khối nhà, các mặt phẳng theo phối cảnh, hướng mặt tiền/mặt hông, độ lồi lõm và quan hệ che khuất.",
+      "- Sau đó nhận diện envelope, kết cấu, ô mở, lớp ốp, mái, ban công, chi tiết trang trí và ranh giới khu đất.",
+      "- Xem cửa/cửa sổ/kính là opening cắt vào tường; không tô tường xuyên qua opening.",
+      "- Nhìn ánh sáng, bóng đổ và vết bẩn như thuộc tính bề mặt, KHÔNG coi chúng là cấu kiện.",
+      "- Một layer có thể chứa nhiều polygon rời nhau nếu chúng là cùng một hệ chi tiết và thường được đổi cùng màu.",
+      "- Nếu hai mặt phẳng khác hướng phối cảnh hoặc khác vật liệu rõ ràng, phải tách thành layer khác.",
       "",
-      "ROLE ĐƯỢC PHÉP:",
-      "- main-wall: diện tường mặt tiền/chính lớn nhất.",
-      "- secondary-wall: tường hông hoặc mảng tường phụ khác vai trò.",
-      "- accent-wall: mảng kiến trúc dùng để tạo điểm nhấn màu.",
-      "- trim-molding: phào, chỉ, đường viền kiến trúc đáng sơn riêng.",
-      "- column-beam: cột/dầm nổi đáng sơn riêng.",
-      "- plinth: chân tường, đế công trình.",
-      "- frames: khung cửa/cửa đi nếu thực sự cần phối màu.",
-      "- roof-canopy: mái, diềm mái, mái che.",
-      "- metal-railing: lan can hoặc kết cấu kim loại lớn.",
-      "- fence-gate: tường rào/cổng.",
-      "- other: chỉ dùng khi thật sự không thuộc nhóm trên.",
+      "KIẾN THỨC HÌNH HỌC/XÂY DỰNG:",
+      ...ARCHITECTURE_REASONING_RULES.map(rule => "- " + rule),
       "",
-      "MASK:",
-      "- polygons là biên vùng sơn, tọa độ [x,y] chuẩn hóa 0..1000.",
-      "- Loại trừ cửa kính, người, xe, cây và vùng không được sơn.",
-      "- Một role có thể chứa nhiều polygon rời nhau.",
-      "- Không chắc biên thì để polygons rỗng để người dùng dùng SAM2/Brush chỉnh sau; KHÔNG bịa bounding box thô.",
+      "TAXONOMY CẤU KIỆN ĐƯỢC PHÉP:",
+      architectureTaxonomyForPrompt(),
       "",
-      "buildingType và summary phải là tiếng Việt ngắn gọn.",
-      "Trả đúng JSON schema, không markdown."
+      "VẬT THỂ PHẢI LOẠI KHỎI MỌI VÙNG SƠN:",
+      NON_BUILDING_OCCLUDERS.map(item => `- ${item.key}: ${item.label} (${item.cues.join(", ")})`).join("\n"),
+      "- Kính cũng là vùng không sơn: vẫn có thể nhận diện glass trong parts để làm mask loại trừ.",
+      "",
+      "QUY TẮC LAYER:",
+      "- Chỉ trả các phần nhìn thấy đủ để người dùng có thể chỉnh màu; tránh chi tiết cực nhỏ vô nghĩa.",
+      "- Mục tiêu khoảng 6-20 layer cho một căn nhà thông thường; công trình phức tạp có thể nhiều hơn nhưng tối đa 36.",
+      "- Tên layer KHÔNG được tự sáng tác: chỉ trả partKey; phần mềm sẽ tự đặt tên tiếng Việt.",
+      "- plane mô tả rất ngắn vị trí/mặt phẳng bằng tiếng Việt như 'mặt tiền', 'hông phải', 'tầng 2', 'cụm cửa chính'.",
+      "- Các cửa sổ cùng hệ khung có thể gộp thành một layer với nhiều polygon.",
+      "- Các cột cùng hệ có thể gộp nếu chắc chắn cùng vật liệu/màu; nếu khác mặt phẳng hoặc kiểu hoàn thiện thì tách.",
+      "",
+      "QUY TẮC MASK:",
+      "- polygon [x,y] dùng tọa độ 0..1000 theo toàn ảnh.",
+      "- Bám sát biên nhìn thấy. Không dùng một hộp chữ nhật lớn thay cho biên thật.",
+      "- Không lấn vào người, xe, cây, động vật, thiết bị, kính, bầu trời, sân/đường hoặc vật che.",
+      "- Khi vật cản che trước bề mặt, vẫn nhận diện bề mặt phía sau nhưng excludedRegions phải chứa vật cản để phần mềm tự khoét nó khỏi mask.",
+      "- Nếu ranh giới không chắc, mask bảo thủ nhỏ hơn một chút tốt hơn là lấn sang cấu kiện khác.",
+      "- excludedRegions phải liệt kê các vật thể không thuộc bề mặt công trình đang che ảnh.",
+      "",
+      "Trả JSON đúng schema, không markdown, không giải thích."
     ].join("\n");
 
     const { result: parsed } = await runRole("VISION_ANALYZE", async (ai, model) => {
-      const response = await ai.chat(model.slug, prompt, [imageDataUrl], schema, 5000);
+      const response = await ai.chat(model.slug, prompt, [imageDataUrl], schema, 7000);
       const raw = response.choices?.[0]?.message?.content;
-      if (typeof raw !== "string") throw new Error("Model không trả JSON phân tích.");
+      if (typeof raw !== "string") throw new Error("Model không trả dữ liệu phân vùng.");
       return JSON.parse(raw);
     });
 
-    const grouped = new Map<SurfaceRole, {
-      role: SurfaceRole;
-      polygons: ReturnType<typeof validatePolygons>;
-      descriptions: string[];
-      materials: Set<string>;
-      confidence: number;
-      count: number;
-    }>();
-
-    for (const item of Array.isArray(parsed.structures) ? parsed.structures : []) {
-      const role = Object.prototype.hasOwnProperty.call(ROLE_NAMES, item.role)
-        ? (item.role as SurfaceRole)
-        : "other";
-      const polygons = validatePolygons(item.polygons);
-      const current = grouped.get(role) || {
-        role,
-        polygons: [],
-        descriptions: [],
-        materials: new Set<string>(),
-        confidence: 0,
-        count: 0
-      };
-
-      current.polygons.push(...polygons);
-      const description = cleanVietnameseText(item.description, "");
-      if (description && !current.descriptions.includes(description)) current.descriptions.push(description);
-      for (const material of Array.isArray(item.recommendedMaterials) ? item.recommendedMaterials : []) {
-        if (["exterior","interior","waterproof","stone","concrete","stucco","metal","wood"].includes(String(material))) {
-          current.materials.add(String(material));
-        }
-      }
-      current.confidence += Math.max(0, Math.min(1, Number(item.confidence ?? 0.6)));
-      current.count += 1;
-      grouped.set(role, current);
-    }
-
-    const order: SurfaceRole[] = [
-      "main-wall","secondary-wall","accent-wall","trim-molding","column-beam",
-      "plinth","frames","roof-canopy","metal-railing","fence-gate","other"
-    ];
-
-    const structures = order
-      .filter(role => grouped.has(role))
-      .map((role, index) => {
-        const group = grouped.get(role)!;
-        const defaultMaterial = role === "metal-railing" ? "metal" : "exterior";
+    const recognized = (Array.isArray(parsed.parts) ? parsed.parts : [])
+      .map((item: any) => {
+        const definition = ARCHITECTURE_PARTS.find(part => part.key === item.partKey);
+        if (!definition) return null;
+        const polygons = validatePolygons(item.polygons);
+        if (!polygons.length) return null;
+        const areaRatio = polygonsAreaRatio(polygons);
+        const threshold = definition.minAreaRatio ?? 0.0004;
+        if (areaRatio < threshold) return null;
         return {
-          id: "surface-" + (index + 1),
-          mask: { polygons: group.polygons, strokes: [] },
-          name: ROLE_NAMES[role],
-          type: ROLE_TYPE[role],
-          description: cleanVietnameseText(
-            group.descriptions[0],
-            role === "main-wall" ? "Mảng tường lớn dùng làm màu nền chính." : "Nhóm bề mặt cùng vai trò để phối màu."
-          ),
-          recommendedMaterials: group.materials.size ? [...group.materials] : [defaultMaterial],
-          confidence: group.count ? group.confidence / group.count : 0.6
+          definition,
+          polygons,
+          plane: cleanText(item.plane, "", 42),
+          confidence: Math.max(0, Math.min(1, Number(item.confidence ?? 0.6))),
+          areaRatio
         };
       })
-      .slice(0, 10);
+      .filter(Boolean) as Array<{
+        definition: ArchitecturePartDefinition;
+        polygons: Point[][];
+        plane: string;
+        confidence: number;
+        areaRatio: number;
+      }>;
+
+    const globalExclusions = (Array.isArray(parsed.excludedRegions) ? parsed.excludedRegions : [])
+      .flatMap((item: any) => validatePolygons(item.polygons));
+
+    const nonPaintablePolygons = recognized
+      .filter(item => !item.definition.paintable)
+      .flatMap(item => item.polygons);
+
+    const paintable = recognized
+      .filter(item => item.definition.paintable)
+      .sort((a, b) => b.definition.priority - a.definition.priority || b.areaRatio - a.areaRatio);
+
+    const keyCounts = new Map<string, number>();
+    for (const item of paintable) {
+      keyCounts.set(item.definition.key, (keyCounts.get(item.definition.key) || 0) + 1);
+    }
+    const seen = new Map<string, number>();
+
+    const structures = paintable.slice(0, 30).map((item, index) => {
+      const count = (seen.get(item.definition.key) || 0) + 1;
+      seen.set(item.definition.key, count);
+      const total = keyCounts.get(item.definition.key) || 1;
+      const suffix = item.plane
+        ? " · " + item.plane
+        : total > 1
+          ? " " + count
+          : "";
+
+      const rank = occlusionRank(item.definition);
+      const higherPriorityParts = recognized
+        .filter(other => other !== item && occlusionRank(other.definition) > rank)
+        .flatMap(other => other.polygons);
+
+      return {
+        id: "surface-" + (index + 1),
+        partKey: item.definition.key,
+        family: item.definition.family,
+        mask: {
+          polygons: item.polygons,
+          excludePolygons: [
+            ...globalExclusions,
+            ...nonPaintablePolygons,
+            ...higherPriorityParts
+          ],
+          strokes: []
+        },
+        name: item.definition.label + suffix,
+        type: item.definition.family,
+        description: `Vùng chọn ${item.definition.label.toLowerCase()}${item.plane ? " ở " + item.plane : ""}.`,
+        recommendedMaterials: item.definition.materials,
+        confidence: item.confidence
+      };
+    });
+
+    if (!structures.length) {
+      throw new Error("Chưa tách được bề mặt công trình đủ tin cậy. Hãy thử ảnh rõ mặt tiền hơn.");
+    }
 
     return NextResponse.json({
-      buildingType: cleanVietnameseText(parsed.buildingType, "Công trình", 50),
-      summary: cleanVietnameseText(
+      buildingType: cleanText(parsed.buildingType, "Công trình", 60),
+      summary: cleanText(
         parsed.summary,
-        "Đã gộp các bề mặt theo nhóm thực tế để phối màu dễ hơn.",
-        150
+        `Đã tạo ${structures.length} vùng chọn kiến trúc và tự loại vật thể không thuộc công trình.`,
+        180
       ),
       structures
     });
