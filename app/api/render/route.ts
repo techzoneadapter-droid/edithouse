@@ -1,3 +1,4 @@
+import { compositeMasked } from "@/lib/composite";
 import { NextRequest, NextResponse } from "next/server";
 import { extractImage, getGemini, splitDataUrl } from "@/lib/gemini";
 
@@ -5,6 +6,7 @@ export const runtime = "nodejs";
 export const maxDuration = 180;
 
 type Assignment = {
+  maskDataUrl: string;
   structureName: string;
   structureDescription?: string;
   colorName: string;
@@ -20,7 +22,7 @@ export async function POST(request: NextRequest) {
     const imageDataUrl = body.imageDataUrl as string;
     const assignments = (body.assignments || []) as Assignment[];
     const quality = body.quality === "pro" ? "pro" : "fast";
-    const preserveArchitecture = body.preserveArchitecture !== false;
+    const preserveArchitecture = true;
     const customInstruction = String(body.customInstruction || "").trim();
 
     if (!imageDataUrl) {
@@ -30,7 +32,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Hãy chọn ít nhất một chi tiết để phối màu." }, { status: 400 });
     }
 
+    if (!Array.isArray(assignments) || assignments.length > 80 || assignments.some(a => typeof a.maskDataUrl !== 'string' || !/^#[0-9a-f]{6}$/i.test(a.hex))) {
+      return NextResponse.json({error: "Mỗi bề mặt cần mask PNG và màu HEX hợp lệ."}, {status: 400});
+    }
     const { mimeType, data } = splitDataUrl(imageDataUrl);
+    // Validate dimensions and empty masks before making a paid AI request.
+    await compositeMasked(Buffer.from(data,'base64'),Buffer.from(data,'base64'),assignments.map(a=>a.maskDataUrl));
     const ai = getGemini();
     const model =
       quality === "pro"
@@ -43,7 +50,7 @@ export async function POST(request: NextRequest) {
         const code = a.colorCode ? " [" + a.colorCode + "]" : "";
         const finish = a.finish ? ", bề mặt " + a.finish : "";
         return (
-          String(i + 1) + ". " + a.structureName + description + ": " +
+          String(i + 1) + ". Mask " + String(i+1) + ": " + a.structureName + description + ": " +
           a.materialName + ", màu " + a.colorName + code + ", HEX " + a.hex + finish + "."
         );
       })
@@ -77,6 +84,7 @@ export async function POST(request: NextRequest) {
       model,
       input: [
         { type: "image", mime_type: mimeType, data },
+        ...assignments.flatMap((a, i) => { const mask = splitDataUrl(a.maskDataUrl); return [{type: "text", text: "Mask " + (i+1) + ": vùng trắng là vùng cần sơn; phần trong suốt phải giữ nguyên."}, {type: "image", mime_type: mask.mimeType, data: mask.data}]; }),
         { type: "text", text: prompt }
       ],
       response_format: {
@@ -87,8 +95,9 @@ export async function POST(request: NextRequest) {
     } as any);
 
     const image = extractImage(interaction);
+    const locked = await compositeMasked(Buffer.from(data, "base64"), Buffer.from(image.data, "base64"), assignments.map(a=>a.maskDataUrl));
     return NextResponse.json({
-      imageDataUrl: "data:" + image.mimeType + ";base64," + image.data,
+      imageDataUrl: "data:image/png;base64," + locked.toString("base64"),
       model
     });
   } catch (error) {

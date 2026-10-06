@@ -1,3 +1,4 @@
+import { validatePolygons } from "@/lib/masks";
 import { NextRequest, NextResponse } from "next/server";
 import { extractText, getGemini, splitDataUrl } from "@/lib/gemini";
 
@@ -21,9 +22,10 @@ const schema = {
           type: { type: "string" },
           description: { type: "string" },
           recommendedMaterials: { type: "array", items: { type: "string" } },
+          polygons: { type: "array", items: { type: "array", minItems: 3, items: { type: "array", minItems: 2, maxItems: 2, items: { type: "number", minimum: 0, maximum: 1000 } } } },
           confidence: { type: "number", minimum: 0, maximum: 1 }
         },
-        required: ["id", "name", "type", "description", "recommendedMaterials", "confidence"]
+        required: ["id", "name", "type", "description", "recommendedMaterials", "confidence", "polygons"]
       }
     }
   },
@@ -50,6 +52,8 @@ export async function POST(request: NextRequest) {
       "- Không gộp các khu vực khác vật liệu hoặc khác vai trò kiến trúc nếu có thể phân biệt.",
       "- Chỉ liệt kê cấu kiện thực sự nhìn thấy hoặc có căn cứ mạnh từ ảnh; không bịa thêm.",
       "- id phải ngắn, duy nhất, dạng kebab-case.",
+      "- polygons là các đường biên vùng sơn, mỗi điểm [x,y] chuẩn hóa 0..1000 so với toàn ảnh. Tách các vùng rời nhau. Không dùng hộp chữ nhật bao thay mask. Loại trừ cửa, kính, người, cây, xe và vật che khuất. Nếu không xác định được, trả polygons rỗng để vẽ thủ công.",
+      "- Lỗ bên trong vùng (ví dụ cửa sổ) cần một đường biên đa giác riêng nằm bên trong đa giác ngoài; các đường biên được tô theo quy tắc even-odd.",
       "- type dùng một trong các nhóm gần nhất: wall, trim, molding, ceiling, column, beam, plinth, window-frame, door-frame, railing, roof, gate, fence, metal, wood, stone, other.",
       "- recommendedMaterials chỉ dùng các mã phù hợp: exterior, interior, waterproof, stone, concrete, stucco, metal, wood.",
       "- confidence là độ tin cậy 0..1.",
@@ -75,7 +79,8 @@ export async function POST(request: NextRequest) {
 
     const structures = Array.isArray(parsed.structures)
       ? parsed.structures.map((item: any, index: number) => ({
-          id: String(item.id || "surface-" + (index + 1)),
+          id: "surface-" + (index + 1),
+          mask: { polygons: validatePolygons(item.polygons), strokes: [] },
           name: String(item.name || "Bề mặt " + (index + 1)),
           type: String(item.type || "other"),
           description: String(item.description || ""),

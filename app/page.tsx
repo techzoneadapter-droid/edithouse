@@ -11,7 +11,6 @@ import {
   Check,
   ChevronDown,
   Download,
-  Eye,
   Home,
   ImagePlus,
   Layers3,
@@ -20,7 +19,6 @@ import {
   PaintBucket,
   Plus,
   RotateCcw,
-  Search,
   Settings,
   Sparkles,
   Upload,
@@ -28,62 +26,21 @@ import {
   X,
   Zap
 } from "lucide-react";
-import { ChangeEvent, useMemo, useRef, useState } from "react";
-
-type Structure = {
-  id: string;
-  name: string;
-  type: string;
-  description: string;
-  recommendedMaterials: PaintMaterial[];
-  confidence: number;
-};
-
-type SurfaceChoice = {
-  enabled: boolean;
-  material: PaintMaterial;
-  colorId?: string;
-  customHex?: string;
-  customCode?: string;
-  brand: string;
-};
-
-type AnalyzeResult = {
-  buildingType: string;
-  summary: string;
-  structures: Structure[];
-};
-
-function fileToOptimizedDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error("Không đọc được ảnh."));
-    reader.onload = () => {
-      const img = new Image();
-      img.onerror = () => reject(new Error("Ảnh không hợp lệ."));
-      img.onload = () => {
-        const maxSide = 2200;
-        const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
-        const canvas = document.createElement("canvas");
-        canvas.width = Math.max(1, Math.round(img.width * scale));
-        canvas.height = Math.max(1, Math.round(img.height * scale));
-        const ctx = canvas.getContext("2d");
-        if (!ctx) return reject(new Error("Trình duyệt không hỗ trợ canvas."));
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        resolve(canvas.toDataURL("image/jpeg", 0.92));
-      };
-      img.src = String(reader.result);
-    };
-    reader.readAsDataURL(file);
-  });
-}
+import type { Structure, SurfaceChoice, AnalyzeResult } from "@/lib/project-types";
+import { fileToOptimizedDataUrl } from "@/lib/image-client";
+import { loadProject, saveProject } from "@/lib/project-store";
+import CatalogBrowser from "@/components/CatalogBrowser";
+import VariantsPanel from "@/components/VariantsPanel";
+import MaskEditor from "@/components/MaskEditor";
+import { SurfaceMask, rasterizeMask } from "@/lib/masks";
+import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 
 function makeChoice(structure: Structure): SurfaceChoice {
   const recommended = structure.recommendedMaterials?.[0] || "exterior";
   return {
-    enabled: true,
+    enabled: false,
     material: recommended,
-    brand: MARKET_BRANDS[0]
+    brand: "EditHouse"
   };
 }
 
@@ -101,37 +58,52 @@ export default function HomePage() {
   const [analysis, setAnalysis] = useState<AnalyzeResult | null>(null);
   const [choices, setChoices] = useState<Record<string, SurfaceChoice>>({});
   const [selectedId, setSelectedId] = useState("");
-  const [paintSearch, setPaintSearch] = useState("");
   const [materialFilter, setMaterialFilter] = useState<PaintMaterial | "all">("all");
   const [analyzing, setAnalyzing] = useState(false);
+  const [reading, setReading] = useState(false);
+  const [uploadStage, setUploadStage] = useState(0);
   const [rendering, setRendering] = useState(false);
   const [error, setError] = useState("");
   const [quality, setQuality] = useState<"fast" | "pro">("fast");
-  const [preserveArchitecture, setPreserveArchitecture] = useState(true);
   const [customInstruction, setCustomInstruction] = useState("");
-  const [compareValue, setCompareValue] = useState(50);
   const [rightTab, setRightTab] = useState<"colors" | "materials">("colors");
 
+  const [hoveredId, setHoveredId] = useState("");
+  const [maskPast, setMaskPast] = useState<AnalyzeResult[]>([]);
+  const [maskFuture, setMaskFuture] = useState<AnalyzeResult[]>([]);
+  function changeMask(mask: SurfaceMask) {
+    if (!analysis || !selectedId) return;
+    setMaskPast(prev => [...prev.slice(-29), analysis]); setMaskFuture([]);
+    setAnalysis({...analysis, structures: analysis.structures.map(s => s.id === selectedId ? {...s, mask} : s)});
+    setRenderedImage("");
+  }
+  function undoMask() { if (!analysis || !maskPast.length) return; setMaskFuture(prev => [...prev, analysis]); setAnalysis(maskPast[maskPast.length-1]); setMaskPast(prev=>prev.slice(0,-1)); setRenderedImage(""); }
+  function redoMask() { if (!analysis || !maskFuture.length) return; setMaskPast(prev => [...prev, analysis]); setAnalysis(maskFuture[maskFuture.length-1]); setMaskFuture(prev=>prev.slice(0,-1)); setRenderedImage(""); }
+  const [variants, setVariants] = useState<Array<{id:string;name:string;choices:Record<string,SurfaceChoice>;analysis:AnalyzeResult|null;image:string}>>([]);
+  const [catalog, setCatalog] = useState<PaintColor[]>([]);
+  const [favorites, setFavorites] = useState<string[]>([]);
+  const [recent, setRecent] = useState<string[]>([]);
+  const [storageReady, setStorageReady] = useState(false);
+  const [storageStatus, setStorageStatus] = useState("");
+  useEffect(() => {
+    loadProject<{version: number; originalImage: string; renderedImage: string; fileName: string; analysis: AnalyzeResult | null; choices: Record<string, SurfaceChoice>; selectedId: string; maskPast: AnalyzeResult[]; maskFuture: AnalyzeResult[]; catalog: PaintColor[]; favorites:string[]; recent:string[]; variants:typeof variants}>().then(p => {
+      if (p?.version === 1) {setOriginalImage(p.originalImage);setRenderedImage(p.renderedImage);setFileName(p.fileName);setAnalysis(p.analysis);setChoices(p.choices);setSelectedId(p.selectedId);setMaskPast(p.maskPast);setMaskFuture(p.maskFuture);setCatalog(p.catalog||[]);setFavorites(p.favorites||[]);setRecent(p.recent||[]);setVariants(p.variants||[]);}
+    }).catch(()=>setStorageStatus("Không đọc được dự án local")).finally(()=>setStorageReady(true));
+  }, []);
+  useEffect(() => {
+    if (!storageReady || analyzing || rendering) return;
+    const timer = setTimeout(()=>{saveProject({version:1, originalImage, renderedImage, fileName, analysis, choices, selectedId, maskPast, maskFuture, catalog, favorites, recent, variants}).then(()=>setStorageStatus("Đã lưu local")).catch(()=>setStorageStatus("Không lưu được: kiểm tra dung lượng trình duyệt"));},600);
+    return ()=>clearTimeout(timer);
+  }, [storageReady, originalImage, renderedImage, fileName, analysis, choices, selectedId, maskPast, maskFuture, analyzing, rendering, catalog, favorites, recent, variants]);
+  const allColors = useMemo(()=>[...ALL_COLORS,...catalog], [catalog]);
   const structures = analysis?.structures || [];
   const selectedStructure =
     structures.find((item) => item.id === selectedId) || structures[0] || null;
   const selectedChoice = selectedStructure ? choices[selectedStructure.id] : undefined;
 
-  const visibleColors = useMemo(() => {
-    const q = paintSearch.trim().toLowerCase();
-    return ALL_COLORS.filter((color) => {
-      const materialOk = materialFilter === "all" || color.material === materialFilter;
-      const searchOk =
-        !q ||
-        color.name.toLowerCase().includes(q) ||
-        color.code.toLowerCase().includes(q) ||
-        color.family.toLowerCase().includes(q);
-      return materialOk && searchOk;
-    });
-  }, [paintSearch, materialFilter]);
-
   async function analyzeImage(imageDataUrl: string) {
     setAnalyzing(true);
+    setUploadStage(2);
     setError("");
     try {
       const response = await fetch("/api/analyze", {
@@ -143,14 +115,17 @@ export default function HomePage() {
       if (!response.ok) throw new Error(data.error || "Không thể phân tích công trình.");
 
       const result = data as AnalyzeResult;
+      setUploadStage(3);
       const nextChoices: Record<string, SurfaceChoice> = {};
       result.structures.forEach((structure) => {
         nextChoices[structure.id] = makeChoice(structure);
       });
 
+      setMaskPast([]); setMaskFuture([]);
       setAnalysis(result);
       setChoices(nextChoices);
       setSelectedId(result.structures[0]?.id || "");
+      setUploadStage(4);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Không thể phân tích công trình.");
     } finally {
@@ -159,6 +134,7 @@ export default function HomePage() {
   }
 
   async function onFileChange(event: ChangeEvent<HTMLInputElement>) {
+    if (reading || analyzing || rendering) return;
     const file = event.target.files?.[0];
     if (!file) return;
     if (!file.type.startsWith("image/")) {
@@ -169,13 +145,20 @@ export default function HomePage() {
     setRenderedImage("");
     setAnalysis(null);
     setChoices({});
+    setMaskPast([]); setMaskFuture([]);
+    setVariants([]);
     setFileName(file.name);
+    setReading(true); setUploadStage(1);
     try {
       const dataUrl = await fileToOptimizedDataUrl(file);
       setOriginalImage(dataUrl);
+      setReading(false);
       await analyzeImage(dataUrl);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Không thể tải ảnh.");
+    } finally {
+      setReading(false);
+      event.target.value = "";
     }
   }
 
@@ -187,10 +170,12 @@ export default function HomePage() {
   }
 
   function chooseColor(color: PaintColor) {
+    setRecent(prev=>[color.id,...prev.filter(id=>id!==color.id)].slice(0,30));
     if (!selectedStructure) return;
     updateChoice(selectedStructure.id, {
       enabled: true,
       colorId: color.id,
+      brand: color.brand || "EditHouse",
       customHex: undefined,
       material: color.material
     });
@@ -233,18 +218,19 @@ export default function HomePage() {
       .map((structure) => {
         const choice = choices[structure.id];
         const color = choice.colorId
-          ? ALL_COLORS.find((item) => item.id === choice.colorId)
+          ? allColors.find((item) => item.id === choice.colorId)
           : undefined;
         const system =
           PAINT_SYSTEMS.find((item) => item.id === choice.material)?.name || "Sơn";
         return {
+          mask: structure.mask,
           structureName: structure.name,
           structureDescription: structure.description,
           colorName: color?.name || "Màu tùy chỉnh",
           colorCode: choice.customCode || color?.code || "",
           hex: color?.hex || choice.customHex || "#E6E1D8",
           materialName: system,
-          finish: color?.finish || ""
+          finish: choice.finish || (color?.material === choice.material ? color.finish : "")
         };
       });
 
@@ -261,16 +247,16 @@ export default function HomePage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           imageDataUrl: originalImage,
-          assignments,
+          assignments: await Promise.all(assignments.map(async ({mask, ...assignment}) => ({...assignment, maskDataUrl: await rasterizeMask(mask, originalImage)}))),
           quality,
-          preserveArchitecture,
+          preserveArchitecture: true,
           customInstruction
         })
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Không thể phối màu.");
       setRenderedImage(data.imageDataUrl);
-      setCompareValue(50);
+      setVariants(prev=>[...prev,{id:crypto.randomUUID(),name:"Render "+(prev.length+1),choices:structuredClone(choices),analysis:structuredClone(analysis),image:data.imageDataUrl}]);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Không thể phối màu.");
     } finally {
@@ -279,6 +265,9 @@ export default function HomePage() {
   }
 
   function resetProject() {
+    if (reading || analyzing || rendering) return;
+    setMaskPast([]); setMaskFuture([]);
+    setVariants([]);
     setOriginalImage("");
     setRenderedImage("");
     setFileName("");
@@ -286,6 +275,7 @@ export default function HomePage() {
     setChoices({});
     setSelectedId("");
     setError("");
+    setUploadStage(0);
     if (fileInput.current) fileInput.current.value = "";
   }
 
@@ -293,11 +283,17 @@ export default function HomePage() {
     if (!renderedImage) return;
     const anchor = document.createElement("a");
     anchor.href = renderedImage;
-    anchor.download = "edithouse-phoi-mau.jpg";
+    anchor.download = "edithouse-phoi-mau.png";
     anchor.click();
   }
 
   const activeCount = structures.filter((item) => choices[item.id]?.enabled).length;
+
+  function addManualSurface() {
+    const structure: Structure = {id:crypto.randomUUID(),name:"Vùng thủ công "+(structures.length+1),type:"other",description:"Dùng Brush để vẽ vùng sơn; Eraser để loại trừ vật thể.",recommendedMaterials:["exterior"],confidence:0,mask:{polygons:[],strokes:[]}};
+    setAnalysis(prev=>({...prev,buildingType:prev?.buildingType||"Công trình",summary:prev?.summary||"",structures:[...(prev?.structures||[]),structure]}));
+    setChoices(prev=>({...prev,[structure.id]:makeChoice(structure)}));setSelectedId(structure.id);
+  }
 
   return (
     <main className="app-shell">
@@ -331,7 +327,7 @@ export default function HomePage() {
           <button className="icon-btn" onClick={resetProject} title="Dự án mới"><RotateCcw size={16} /></button>
         </div>
 
-        <button className="upload-card" onClick={() => fileInput.current?.click()}>
+        <button className="upload-card" disabled={reading || analyzing || rendering || !storageReady} onClick={() => fileInput.current?.click()}>
           <span className="upload-icon"><ImagePlus size={22} /></span>
           <span className="upload-copy">
             <strong>{fileName || "Tải ảnh công trình"}</strong>
@@ -356,7 +352,10 @@ export default function HomePage() {
         </div>
 
         {analysis?.summary && <p className="analysis-summary">{analysis.summary}</p>}
+        {uploadStage>0 && <ol className="upload-progress">{["Đang đọc ảnh","Đang nhận diện kiến trúc","Đang tách bề mặt","Hoàn tất"].map((label,i)=><li key={label} className={uploadStage===i+1?'active':''}>{uploadStage>i+1?'✓ ':''}{label}</li>)}</ol>}
+        <button className="tool-btn" disabled={!originalImage || reading || analyzing || rendering} onClick={addManualSurface}>+ Thêm vùng thủ công</button>
 
+        <VariantsPanel variants={variants} disabled={analyzing || rendering || !originalImage} onSave={()=>setVariants(prev=>[...prev,{id:crypto.randomUUID(),name:"Phuong an "+(prev.length+1),choices:structuredClone(choices),analysis:structuredClone(analysis),image:renderedImage}])} onLoad={v=>{setChoices(structuredClone(v.choices));setAnalysis(structuredClone(v.analysis));setRenderedImage(v.image);setSelectedId(v.analysis?.structures[0]?.id||"");setMaskPast([]);setMaskFuture([]);}} onChange={setVariants}/>
         <div className="structure-list">
           {!originalImage && (
             <div className="empty-list">
@@ -375,7 +374,7 @@ export default function HomePage() {
           {!analyzing && structures.map((structure) => {
             const choice = choices[structure.id];
             const color = choice?.colorId
-              ? ALL_COLORS.find((item) => item.id === choice.colorId)
+              ? allColors.find((item) => item.id === choice.colorId)
               : undefined;
             const chipColor = color?.hex || choice?.customHex || "#E6E1D8";
 
@@ -383,6 +382,8 @@ export default function HomePage() {
               <button
                 key={structure.id}
                 className={"structure-item " + (selectedStructure?.id === structure.id ? "selected" : "")}
+                onMouseEnter={() => setHoveredId(structure.id)}
+                onMouseLeave={() => setHoveredId("")}
                 onClick={() => setSelectedId(structure.id)}
               >
                 <span
@@ -423,7 +424,8 @@ export default function HomePage() {
           </div>
 
           <div className="toolbar">
-            <button className="tool-btn"><Eye size={16} /> Xem trước</button>
+            <button className="tool-btn" disabled={!maskPast.length || rendering || analyzing} onClick={undoMask}>Undo mask</button>
+            <button className="tool-btn" disabled={!maskFuture.length || rendering || analyzing} onClick={redoMask}>Redo mask</button>
             <button className="tool-btn" disabled={!renderedImage} onClick={downloadResult}><Download size={16} /> Xuất ảnh</button>
           </div>
         </header>
@@ -438,43 +440,8 @@ export default function HomePage() {
             </button>
           ) : (
             <div className="image-stage">
-              {!renderedImage && <img src={originalImage} alt="Công trình gốc" className="stage-image" />}
-
-              {renderedImage && (
-                <>
-                  <img src={renderedImage} alt="Ảnh đã phối màu" className="stage-image" />
-                  <div
-                    className="compare-original"
-                    style={{ width: compareValue + "%" }}
-                  >
-                    <img src={originalImage} alt="Ảnh gốc" className="compare-image" />
-                  </div>
-                  <div className="compare-line" style={{ left: compareValue + "%" }}>
-                    <span className="compare-handle">↔</span>
-                  </div>
-                  <input
-                    aria-label="So sánh trước sau"
-                    className="compare-range"
-                    type="range"
-                    min="0"
-                    max="100"
-                    value={compareValue}
-                    onChange={(e) => setCompareValue(Number(e.target.value))}
-                  />
-                  <span className="before-label">TRƯỚC</span>
-                  <span className="after-label">SAU</span>
-                </>
-              )}
-
-              {(analyzing || rendering) && (
-                <div className="working-overlay">
-                  <div className="working-card">
-                    <LoaderCircle className="spin" size={27} />
-                    <strong>{analyzing ? "Đang nhận diện kết cấu..." : "Đang phối màu siêu thực..."}</strong>
-                    <span>{analyzing ? "AI đang đọc các bề mặt của công trình" : "Giữ nguyên kiến trúc, ánh sáng và phối cảnh gốc"}</span>
-                  </div>
-                </div>
-              )}
+              <MaskEditor image={originalImage} result={renderedImage} mask={selectedStructure?.mask} hoverMask={structures.find(s=>s.id===hoveredId)?.mask} onChange={changeMask} disabled={analyzing || rendering}/>
+              {(analyzing || rendering) && <div className="working-overlay"><div className="working-card"><LoaderCircle className="spin" size={27}/><strong>{analyzing ? "Đang nhận diện kiến trúc và tách bề mặt…" : "Đang phối màu theo mask…"}</strong></div></div>}
             </div>
           )}
 
@@ -503,8 +470,8 @@ export default function HomePage() {
           <label className="lock-toggle">
             <input
               type="checkbox"
-              checked={preserveArchitecture}
-              onChange={(e) => setPreserveArchitecture(e.target.checked)}
+              checked={true}
+              disabled
             />
             <span />
             Khóa kiến trúc
@@ -551,7 +518,7 @@ export default function HomePage() {
                 value={selectedChoice?.brand || MARKET_BRANDS[0]}
                 onChange={(e) => updateChoice(selectedStructure.id, { brand: e.target.value })}
               >
-                {MARKET_BRANDS.map((brand) => <option key={brand}>{brand}</option>)}
+                {["EditHouse",...MARKET_BRANDS,...new Set(catalog.map(c=>c.brand).filter((b): b is string=>!!b && !MARKET_BRANDS.includes(b)))].map((brand) => <option key={brand}>{brand}</option>)}
               </select>
               <ChevronDown size={15} />
             </div>
@@ -575,6 +542,11 @@ export default function HomePage() {
               </div>
             ) : (
               <>
+                <label className="field-label">Vật liệu / hiệu ứng của bề mặt</label>
+                <select className="finish-select" value={selectedChoice?.finish || ""} onChange={e=>updateChoice(selectedStructure.id,{finish:e.target.value})}>
+                  <option value="">Hoàn thiện theo hệ sơn</option>
+                  {["Mờ","Satin","Bóng","Granite hạt mịn","Marble","Đá hạt","Bê tông thô","Microcement","Stucco","Venetian plaster","Metallic","Hiệu ứng cát","Hiệu ứng nhung","Sơn kim loại","Stain gỗ"].map(f=><option key={f}>{f}</option>)}
+                </select>
                 <label className="field-label">Hệ sơn / hiệu ứng</label>
                 <div className="material-pills">
                   <button className={materialFilter === "all" ? "active" : ""} onClick={() => setMaterialFilter("all")}>Tất cả</button>
@@ -589,34 +561,7 @@ export default function HomePage() {
                   ))}
                 </div>
 
-                <div className="search-box">
-                  <Search size={15} />
-                  <input
-                    value={paintSearch}
-                    onChange={(e) => setPaintSearch(e.target.value)}
-                    placeholder="Tìm tên, mã màu..."
-                  />
-                </div>
-
-                <div className="color-grid">
-                  {visibleColors.slice(0, 80).map((color) => {
-                    const active = selectedChoice?.colorId === color.id;
-                    return (
-                      <button
-                        key={color.id}
-                        className={"color-card " + (active ? "active" : "")}
-                        onClick={() => chooseColor(color)}
-                        title={color.name + " · " + color.code + " · " + color.finish}
-                      >
-                        <span className="color-chip" style={{ background: color.hex }}>
-                          {active && <Check size={14} />}
-                        </span>
-                        <span>{color.name}</span>
-                        <small>{color.code}</small>
-                      </button>
-                    );
-                  })}
-                </div>
+                <CatalogBrowser colors={allColors.filter(c=>materialFilter==='all'||c.material===materialFilter)} onImport={colors=>setCatalog(prev=>[...new Map([...prev,...colors].map(c=>[c.id,c])).values()])} onChoose={chooseColor} favorites={favorites} recent={recent} onFavorite={id=>setFavorites(prev=>prev.includes(id)?prev.filter(x=>x!==id):[...prev,id])} onError={setError}/>
 
                 <div className="custom-color">
                   <div>

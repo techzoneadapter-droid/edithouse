@@ -16,6 +16,8 @@ export type PaintColor = {
   family: string;
   material: PaintMaterial;
   finish: string;
+  brand?: string;
+  collection?: string;
 };
 
 export const MARKET_BRANDS = [

@@ -1,5 +1,33 @@
 # EditHouse
 
+## Editor vùng sơn
+
+- Mỗi cấu kiện có mask gồm đường biên AI và nét Brush/Eraser riêng. Click/hover tên cấu kiện để xem vùng; bật/tắt overlay, zoom, pan, Undo/Redo mask.
+- AI chỉ đề xuất đường biên. Kiểm tra và sửa mask trước khi bật bề mặt cần sơn. Có thể thêm vùng thủ công khi chưa cấu hình AI.
+- Render gửi ảnh gốc và mask từng bề mặt. Server kiểm tra mask trước khi gọi AI, sau đó ghép kết quả trong hợp mask và xuất PNG. Pixel ngoài mask giữ nguyên so với ảnh đầu vào đã được tối ưu ở trình duyệt (cạnh dài tối đa 2200px). AI vẫn cần được kiểm tra về texture và hình học bên trong vùng chọn.
+- Mỗi bề mặt có màu, hệ sơn và hiệu ứng riêng. Một lần render áp dụng tất cả bề mặt đang bật.
+- Dự án hiện tại tự lưu trong IndexedDB: ảnh, cấu kiện, mask, lựa chọn, lịch sử mask, catalogue và phương án. Mỗi render thành công tạo một phiên bản. Có lưu/nhân bản/đổi tên/xóa/mở phương án, so sánh hai phương án đã render và trước/sau ảnh gốc. Dữ liệu gắn với trình duyệt và origin; chưa đồng bộ cloud.
+
+## Nhập catalogue
+
+Nhập CSV UTF-8 hoặc XLSX (worksheet đầu), tối đa 25 MB / 100.000 màu. Các cột:
+
+```csv
+brand,collection,color_name,color_code,hex,rgb,category,finish,material
+```
+
+`brand`, `color_name`, `color_code` bắt buộc; cần `hex` hoặc `rgb`. HEX sáu chữ số, RGB dạng `"12,34,56"`. `material` nhận `exterior`, `interior`, `waterproof`, `stone`, `concrete`, `stucco`, `metal`, `wood` (mặc định exterior). Mã màu nhập được giữ nguyên; app không tự tạo mã chính hãng. Màu sẵn có thuộc EditHouse. Có lọc hãng/collection/tone, tìm kiếm, yêu thích, gần đây và phân trang.
+
+## Kiểm tra
+
+```sh
+npm test
+npm run lint
+npm run build
+```
+
+Test kiểm tra giữ pixel ngoài mask, phối nhiều mask, từ chối mask trống, nhập CSV/XLSX và loại bỏ tọa độ không hợp lệ. Để kiểm tra AI thực tế, nhập key tại dòng `GEMINI_API_KEY=` trong `.env.local`, rồi chạy `npm run dev`. Không đưa key vào Git.
+
 EditHouse là web app phối màu sơn và vật liệu trực tiếp trên ảnh công trình thực tế.
 
 ## Luồng chính
