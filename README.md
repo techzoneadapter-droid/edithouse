@@ -50,3 +50,21 @@ Test kiểm tra mask, CSV/XLSX, capability gates, pagination, cache/refresh, ove
 - app/api/analyze, app/api/mask/analyze, app/api/catalog/analyze, app/api/render: inference theo vai trò.
 - components/AISettings.tsx: cấu hình trực tiếp.
 - lib/composite.ts: ghép ảnh chỉ trong mask.
+
+## Engine phối màu v2
+
+EditHouse dùng hai lớp xử lý tách biệt để tránh hiện tượng AI vẽ lại công trình:
+
+- **Sơn màu thường:** server recolor trực tiếp trong không gian màu OKLab bên trong mask, giữ ánh sáng cục bộ, bóng đổ, nhiễu camera và texture gốc. Không gọi image-generation AI cho sơn nước thông thường.
+- **Vật liệu/hiệu ứng:** marble, granite, đá hạt, microcement, stucco, metallic, gỗ... mới đi qua IMAGE_RENDER. Kết quả vẫn được composite khóa cứng trong mask.
+- **SAM2:** trong Mask Editor chọn công cụ **SAM2**, bấm vào giữa tường/cột/mái để bám biên. Bấm thêm để mở rộng; Shift+click hoặc chuột phải để loại cửa, kính, cây hoặc vật che. Sau đó vẫn có thể Brush/Eraser thủ công.
+
+SAM2 chạy ở browser bằng ONNX Runtime Web, ưu tiên WebGPU và fallback WASM. Model được tải/cache ở browser khi dùng lần đầu; ảnh không cần gửi sang một server segmentation riêng.
+
+### Nguồn kỹ thuật / giấy phép
+
+- Meta Segment Anything 2 (SAM2), Apache-2.0.
+- ONNX Runtime Web, MIT.
+- Kiến trúc browser SAM2 tham khảo geronimi73/next-sam, MIT; model ONNX tiny tương thích được tải từ g-ronimo/sam2-tiny.
+
+Các thành phần trên chỉ phục vụ segmentation. Engine recolor OKLab và luồng khóa kiến trúc của EditHouse nằm trong mã nguồn dự án này.
