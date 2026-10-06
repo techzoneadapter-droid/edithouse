@@ -1,7 +1,8 @@
 "use client";
 import { useMemo, useState } from 'react';
 import type { PaintColor } from '@/lib/catalog';
-import { importCatalog } from '@/lib/catalog-import';
+import { importCatalog, importRows } from '@/lib/catalog-import';
+import { fileToOptimizedDataUrl } from '@/lib/image-client';
 type Props={colors:PaintColor[];onImport:(colors:PaintColor[])=>void;onChoose:(color:PaintColor)=>void;favorites:string[];recent:string[];onFavorite:(id:string)=>void;onError:(message:string)=>void};
 export default function CatalogBrowser({colors,onImport,onChoose,favorites,recent,onFavorite,onError}:Props) {
   const [query,setQuery]=useState('');const [brand,setBrand]=useState('');const [collection,setCollection]=useState('');const [tone,setTone]=useState('');const [mode,setMode]=useState('all');const [page,setPage]=useState(0);const [busy,setBusy]=useState(false);
@@ -11,6 +12,7 @@ export default function CatalogBrowser({colors,onImport,onChoose,favorites,recen
   const visible=useMemo(()=>colors.filter(c=>(!brand||(c.brand||'EditHouse')===brand)&&(!collection||c.collection===collection)&&(!tone||c.family===tone)&&(mode!=='favorites'||favorites.includes(c.id))&&(mode!=='recent'||recent.includes(c.id))&&(`${c.name} ${c.code} ${c.brand||'EditHouse'}`).toLowerCase().includes(query.toLowerCase())),[colors,brand,collection,tone,mode,favorites,recent,query]);
   const reset=()=>setPage(0);
   return <div className="catalog-browser">
+    <label className="catalog-import">{busy?'Đang đọc…':'OCR ảnh bảng màu (HEX ước tính)'}<input type="file" disabled={busy} accept="image/png,image/jpeg,image/webp" onChange={async e=>{const input=e.currentTarget,file=input.files?.[0];if(!file)return;setBusy(true);try{const response=await fetch('/api/catalog/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({imageDataUrl:await fileToOptimizedDataUrl(file)}),signal:AbortSignal.timeout(180000)});const result=await response.json();if(!response.ok)throw new Error(result.error);const rows=(result.swatches||[]).filter((s:any)=>s.name&&s.code&&/^#[0-9a-f]{6}$/i.test(s.hex));if(!rows.length)throw new Error('Không đọc được mã và màu hợp lệ. Có thể nhập CSV thủ công.');onImport(importRows([['brand','collection','color_name','color_code','hex'],...rows.map((s:any)=>[result.brand||'OCR chưa rõ hãng',result.collection||'',s.name,s.code,s.hex])]));reset();}catch(err){onError(err instanceof Error?err.message:'Không đọc được bảng màu.');}finally{setBusy(false);input.value='';}}}/></label>
     <label className="catalog-import">{busy?'Đang nhập…':'Import CSV / XLSX'}<input type="file" disabled={busy} accept=".csv,.xlsx" onChange={async e=>{const file=e.target.files?.[0];if(!file)return;setBusy(true);try{onImport(await importCatalog(file));reset();}catch(err){onError(err instanceof Error?err.message:'Không nhập được catalogue.');}finally{setBusy(false);e.target.value='';}}}/></label>
     <input aria-label="Tìm màu" placeholder="Tìm tên / mã / hãng" value={query} onChange={e=>{setQuery(e.target.value);reset();}}/>
     <select aria-label="Lọc hãng" value={brand} onChange={e=>{setBrand(e.target.value);setCollection('');reset();}}><option value="">Tất cả hãng</option>{brands.map(b=><option key={b}>{b}</option>)}</select>

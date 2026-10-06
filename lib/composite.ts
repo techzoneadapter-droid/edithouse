@@ -1,5 +1,5 @@
 import sharp from 'sharp';
-import { splitDataUrl } from './gemini';
+import { splitDataUrl } from './image-data';
 
 export async function compositeMasked(original: Buffer, generated: Buffer, masks: string[]) {
   const source = await sharp(original,{limitInputPixels:25000000}).toColourspace('srgb').ensureAlpha().raw().toBuffer({resolveWithObject:true});

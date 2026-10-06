@@ -31,6 +31,7 @@ import { fileToOptimizedDataUrl } from "@/lib/image-client";
 import { loadProject, saveProject } from "@/lib/project-store";
 import CatalogBrowser from "@/components/CatalogBrowser";
 import VariantsPanel from "@/components/VariantsPanel";
+import AISettings from "@/components/AISettings";
 import MaskEditor from "@/components/MaskEditor";
 import { SurfaceMask, rasterizeMask } from "@/lib/masks";
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
@@ -51,6 +52,9 @@ function normalizeHex(hex: string) {
 }
 
 export default function HomePage() {
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [aiStatus, setAIStatus] = useState<any>(null);
+  useEffect(()=>{fetch("/api/ai/status").then(r=>r.json()).then(setAIStatus).catch(()=>{});},[]);
   const fileInput = useRef<HTMLInputElement>(null);
   const [originalImage, setOriginalImage] = useState("");
   const [renderedImage, setRenderedImage] = useState("");
@@ -64,7 +68,6 @@ export default function HomePage() {
   const [uploadStage, setUploadStage] = useState(0);
   const [rendering, setRendering] = useState(false);
   const [error, setError] = useState("");
-  const [quality, setQuality] = useState<"fast" | "pro">("fast");
   const [customInstruction, setCustomInstruction] = useState("");
   const [rightTab, setRightTab] = useState<"colors" | "materials">("colors");
 
@@ -248,7 +251,6 @@ export default function HomePage() {
         body: JSON.stringify({
           imageDataUrl: originalImage,
           assignments: await Promise.all(assignments.map(async ({mask, ...assignment}) => ({...assignment, maskDataUrl: await rasterizeMask(mask, originalImage)}))),
-          quality,
           preserveArchitecture: true,
           customInstruction
         })
@@ -297,6 +299,7 @@ export default function HomePage() {
 
   return (
     <main className="app-shell">
+      {settingsOpen && <AISettings onClose={()=>setSettingsOpen(false)} onUpdate={setAIStatus}/>}
       <input
         ref={fileInput}
         type="file"
@@ -312,10 +315,10 @@ export default function HomePage() {
           <button className="rail-btn" title="Tải ảnh" onClick={() => fileInput.current?.click()}><Upload size={19} /></button>
           <button className="rail-btn" title="Màu sơn"><Palette size={19} /></button>
           <button className="rail-btn" title="Kết cấu"><Layers3 size={19} /></button>
-          <button className="rail-btn" title="AI"><Sparkles size={19} /></button>
+          <button className="rail-btn" onClick={()=>setSettingsOpen(true)} title={aiStatus?.connected ? `Experiential Labs · Connected\nVision: ${aiStatus.selected?.VISION_ANALYZE || "—"}\nRender: ${aiStatus.selected?.IMAGE_RENDER || "—"}` : "AI chưa kết nối"}><Sparkles size={19} /></button>
         </div>
         <div className="rail-spacer" />
-        <button className="rail-btn" title="Cài đặt"><Settings size={19} /></button>
+        <button className="rail-btn" title="Cài đặt" onClick={()=>setSettingsOpen(true)}><Settings size={19} /></button>
       </aside>
 
       <aside className="left-panel">
@@ -456,13 +459,10 @@ export default function HomePage() {
 
         <footer className="bottom-bar">
           <div className="quality-control">
-            <span>Chất lượng</span>
+            <span>AI · {aiStatus?.connected ? 'Experiential Labs · Connected' : 'Chưa kết nối'}</span>
             <div className="segment">
-              <button className={quality === "fast" ? "active" : ""} onClick={() => setQuality("fast")}>
-                <Zap size={13} /> Nhanh
-              </button>
-              <button className={quality === "pro" ? "active" : ""} onClick={() => setQuality("pro")}>
-                <Sparkles size={13} /> Pro 2K
+              <button onClick={() => setSettingsOpen(true)} title={`Vision: ${aiStatus?.selected?.vision || '—'} · Render: ${aiStatus?.selected?.render || '—'}`}>
+                <Settings size={13} /> {aiStatus?.mode === 'economy' ? 'Tiết kiệm' : aiStatus?.mode === 'quality' ? 'Chất lượng cao' : 'Cân bằng'}
               </button>
             </div>
           </div>
@@ -513,6 +513,11 @@ export default function HomePage() {
             </div>
 
             <label className="field-label">Thương hiệu / catalogue</label>
+            <button className="icon-btn" disabled={analyzing||rendering} onClick={async()=>{
+              setAnalyzing(true);setError('');
+              try {const response=await fetch('/api/mask/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({imageDataUrl:originalImage,surface:selectedStructure.name}),signal:AbortSignal.timeout(180000)});const result=await response.json();if(!response.ok)throw new Error(result.error);changeMask({polygons:result.polygons,strokes:[]});}
+              catch(e){setError(e instanceof Error?e.message:'Không phân tích được mask.');}finally{setAnalyzing(false);}
+            }}>AI tìm lại mask vùng này</button>
             <div className="select-wrap">
               <select
                 value={selectedChoice?.brand || MARKET_BRANDS[0]}

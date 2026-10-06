@@ -1,12 +1,15 @@
 import { validatePolygons } from "@/lib/masks";
 import { NextRequest, NextResponse } from "next/server";
-import { extractText, getGemini, splitDataUrl } from "@/lib/gemini";
+import { splitDataUrl } from "@/lib/image-data";
+import { runRole } from "@/lib/ai/provider";
+import { failure, localRequest } from "@/lib/ai/http";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
 const schema = {
   type: "object",
+  additionalProperties: false,
   properties: {
     buildingType: { type: "string" },
     summary: { type: "string" },
@@ -16,6 +19,7 @@ const schema = {
       maxItems: 40,
       items: {
         type: "object",
+        additionalProperties: false,
         properties: {
           id: { type: "string" },
           name: { type: "string" },
@@ -34,15 +38,13 @@ const schema = {
 
 export async function POST(request: NextRequest) {
   try {
+    localRequest(request);
     const { imageDataUrl } = await request.json();
     if (!imageDataUrl || typeof imageDataUrl !== "string") {
       return NextResponse.json({ error: "Chưa có ảnh công trình." }, { status: 400 });
     }
 
-    const { mimeType, data } = splitDataUrl(imageDataUrl);
-    const ai = getGemini();
-    const model = process.env.GEMINI_ANALYZE_MODEL || "gemini-3.1-flash-lite";
-
+    splitDataUrl(imageDataUrl);
     const prompt = [
       "Bạn là kiến trúc sư và chuyên gia thi công sơn. Hãy phân tích ảnh công trình thực tế này để phục vụ một phần mềm phối màu.",
       "",
@@ -61,21 +63,12 @@ export async function POST(request: NextRequest) {
       "Trả đúng JSON theo schema, không thêm markdown."
     ].join("\n");
 
-    const interaction = await ai.interactions.create({
-      model,
-      input: [
-        { type: "image", mime_type: mimeType, data },
-        { type: "text", text: prompt }
-      ],
-      response_format: {
-        type: "text",
-        mime_type: "application/json",
-        schema
-      }
-    } as any);
-
-    const raw = extractText(interaction);
-    const parsed = JSON.parse(raw);
+    const {result: parsed} = await runRole("VISION_ANALYZE", async (ai, model) => {
+      const response = await ai.chat(model.slug, prompt, [imageDataUrl], schema);
+      const raw = response.choices?.[0]?.message?.content;
+      if (typeof raw !== 'string') throw new Error('Model không trả JSON phân tích.');
+      return JSON.parse(raw);
+    });
 
     const structures = Array.isArray(parsed.structures)
       ? parsed.structures.map((item: any, index: number) => ({
@@ -97,10 +90,6 @@ export async function POST(request: NextRequest) {
       structures
     });
   } catch (error) {
-    console.error(error);
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Không thể phân tích ảnh." },
-      { status: 500 }
-    );
+    return failure(error);
   }
 }

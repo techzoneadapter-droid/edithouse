@@ -1,6 +1,9 @@
 import { compositeMasked } from "@/lib/composite";
 import { NextRequest, NextResponse } from "next/server";
-import { extractImage, getGemini, splitDataUrl } from "@/lib/gemini";
+import { splitDataUrl } from "@/lib/image-data";
+import { runRole } from "@/lib/ai/provider";
+import { AIError } from "@/lib/ai/experiential-provider";
+import { failure, localRequest } from "@/lib/ai/http";
 
 export const runtime = "nodejs";
 export const maxDuration = 180;
@@ -18,10 +21,10 @@ type Assignment = {
 
 export async function POST(request: NextRequest) {
   try {
+    localRequest(request);
     const body = await request.json();
     const imageDataUrl = body.imageDataUrl as string;
     const assignments = (body.assignments || []) as Assignment[];
-    const quality = body.quality === "pro" ? "pro" : "fast";
     const preserveArchitecture = true;
     const customInstruction = String(body.customInstruction || "").trim();
 
@@ -38,12 +41,6 @@ export async function POST(request: NextRequest) {
     const { mimeType, data } = splitDataUrl(imageDataUrl);
     // Validate dimensions and empty masks before making a paid AI request.
     await compositeMasked(Buffer.from(data,'base64'),Buffer.from(data,'base64'),assignments.map(a=>a.maskDataUrl));
-    const ai = getGemini();
-    const model =
-      quality === "pro"
-        ? process.env.GEMINI_RENDER_PRO_MODEL || "gemini-3-pro-image"
-        : process.env.GEMINI_RENDER_MODEL || "gemini-3.1-flash-image";
-
     const assignmentText = assignments
       .map((a, i) => {
         const description = a.structureDescription ? " (" + a.structureDescription + ")" : "";
@@ -80,31 +77,18 @@ export async function POST(request: NextRequest) {
       customInstruction ? "\nGHI CHÚ THÊM TỪ NGƯỜI DÙNG:\n" + customInstruction : ""
     ].filter(Boolean).join("\n");
 
-    const interaction = await ai.interactions.create({
-      model,
-      input: [
-        { type: "image", mime_type: mimeType, data },
-        ...assignments.flatMap((a, i) => { const mask = splitDataUrl(a.maskDataUrl); return [{type: "text", text: "Mask " + (i+1) + ": vùng trắng là vùng cần sơn; phần trong suốt phải giữ nguyên."}, {type: "image", mime_type: mask.mimeType, data: mask.data}]; }),
-        { type: "text", text: prompt }
-      ],
-      response_format: {
-        type: "image",
-        mime_type: "image/jpeg",
-        image_size: quality === "pro" ? "2K" : "1K"
-      }
-    } as any);
-
-    const image = extractImage(interaction);
+    const {result: image, model} = await runRole('IMAGE_RENDER',async (ai,m)=> {
+      const response = await ai.chat(m.slug,prompt,[imageDataUrl,...assignments.map(a=>a.maskDataUrl)]);
+      const url = response.choices?.[0]?.message?.images?.[0]?.image_url?.url;
+      if (typeof url !== 'string' || !url.startsWith('data:image/')) throw new AIError('Route không trả ảnh edit. Model không tương thích IMAGE_RENDER.',400,'unsupported_capability');
+      return splitDataUrl(url);
+    });
     const locked = await compositeMasked(Buffer.from(data, "base64"), Buffer.from(image.data, "base64"), assignments.map(a=>a.maskDataUrl));
     return NextResponse.json({
       imageDataUrl: "data:image/png;base64," + locked.toString("base64"),
       model
     });
   } catch (error) {
-    console.error(error);
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Không thể tạo ảnh phối màu." },
-      { status: 500 }
-    );
+    return failure(error);
   }
 }
