@@ -249,6 +249,7 @@ export default function HomePage() {
           colorCode: choice.customCode || color?.code || choice.colorCode || "",
           hex: choice.customHex || color?.hex || choice.hex || "#E6E1D8",
           materialName: system,
+          materialId: choice.material,
           finish: choice.finish || (color?.material === choice.material ? color.finish : "")
         };
       });
