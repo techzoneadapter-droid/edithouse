@@ -261,7 +261,11 @@ export default function HomePage() {
     if (!originalImage || !analysis) return;
 
     const assignments = structures
-      .filter((structure) => choices[structure.id]?.enabled)
+      // Checkbox is selection state, Photoshop-style. Paint persists after deselection.
+      .filter((structure) => {
+        const choice=choices[structure.id];
+        return !!choice && !!(choice.colorId || choice.customHex || choice.hex);
+      })
       .map((structure) => {
         const choice = choices[structure.id];
         const color = choice.colorId
