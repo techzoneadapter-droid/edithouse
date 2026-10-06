@@ -873,3 +873,224 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .catalog-source-image { position:relative; }
 .catalog-source-image img { display:block; margin:0; width:100%; }
 .catalog-source-box { position:absolute; border:2px solid #5d8cff; background:#5d8cff18; pointer-events:none; }
+
+/* EditHouse UX v3: practical architecture + readable colour browser */
+@media (min-width: 1500px) {
+  .app-shell {
+    grid-template-columns: 58px 300px minmax(560px, 1fr) 390px;
+  }
+}
+
+.structure-item {
+  min-height: 58px;
+  padding: 10px 9px;
+}
+.structure-copy strong {
+  font-size: 12.5px;
+  line-height: 1.25;
+}
+.structure-copy small {
+  font-size: 9.8px;
+  line-height: 1.35;
+}
+
+.right-panel {
+  padding-left: 15px;
+  padding-right: 15px;
+}
+
+.catalog-browser {
+  gap: 10px;
+  overflow: visible;
+  padding: 0 1px 16px;
+}
+
+.current-color {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 9px;
+  border: 1px solid #35445b;
+  border-radius: 10px;
+  background: #18202b;
+}
+.current-color-chip {
+  width: 48px;
+  height: 48px;
+  border-radius: 9px;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.18);
+}
+.current-color > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.current-color small {
+  color: var(--muted);
+  font-size: 8.5px;
+}
+.current-color strong {
+  font-size: 13px;
+  line-height: 1.15;
+}
+.current-color span:not(.current-color-chip) {
+  font-size: 9.5px;
+  color: #b7c0c8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.current-color code {
+  color: #9fb6e7;
+  font-size: 9px;
+}
+
+.catalog-manage-btn {
+  width: 100%;
+  height: 34px;
+  border: 1px solid #33435a;
+  border-radius: 8px;
+  background: #192332;
+  color: #b9ccf5;
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 700;
+}
+.catalog-manage-btn:hover {
+  border-color: var(--accent);
+  color: white;
+}
+
+.catalog-browser .catalog-search {
+  width: 100%;
+  height: 38px;
+  padding: 0 11px;
+  border-radius: 8px;
+  font-size: 11px;
+}
+
+.catalog-filter-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, .85fr);
+  gap: 7px;
+}
+.catalog-filter-row select {
+  width: 100%;
+  height: 35px;
+  padding: 0 8px;
+  font-size: 10px;
+}
+
+.tone-filters {
+  display: flex;
+  gap: 5px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-width: none;
+}
+.tone-filters::-webkit-scrollbar { display: none; }
+.tone-filters button {
+  flex: 0 0 auto;
+  height: 28px;
+  padding: 0 9px;
+  border-radius: 999px;
+  border: 1px solid #303941;
+  background: #15191d;
+  color: #9da7b1;
+  font-size: 9px;
+  cursor: pointer;
+}
+.tone-filters button.active {
+  border-color: #557ed0;
+  background: #1d2b43;
+  color: #c9d8ff;
+}
+
+.catalog-count {
+  color: var(--muted);
+  font-size: 10px;
+  display: flex;
+  gap: 4px;
+  align-items: baseline;
+}
+.catalog-count strong {
+  color: white;
+  font-size: 12px;
+}
+
+.catalog-browser .color-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.catalog-browser .catalog-color {
+  border: 1px solid transparent;
+  border-radius: 10px;
+  padding: 2px;
+}
+.catalog-browser .catalog-color.active {
+  border-color: #5d8cff;
+  background: #1a2639;
+}
+.catalog-browser .color-card {
+  min-height: 84px;
+  padding: 4px;
+  border-radius: 8px;
+}
+.catalog-browser .color-chip {
+  height: 52px;
+  border-radius: 7px;
+  margin-bottom: 5px;
+}
+.catalog-browser .color-card strong {
+  display: block;
+  color: #f1f4f7;
+  font-size: 11px;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.catalog-browser .color-card > small {
+  display: block;
+  color: #89949e;
+  font-size: 8.5px;
+  line-height: 1.25;
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.catalog-browser .favorite-color {
+  top: 6px;
+  right: 6px;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  font-size: 13px;
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 7px;
+  background: rgba(18,22,26,.82);
+}
+
+.catalog-empty {
+  margin: 8px 0;
+  padding: 12px;
+  border-radius: 8px;
+  background: #11161b;
+  color: var(--muted);
+  font-size: 10px;
+  text-align: center;
+}
+
+.catalog-browser .catalog-pages {
+  margin-top: 2px;
+  gap: 8px;
+}
+.catalog-browser .catalog-pages button {
+  min-width: 72px;
+  height: 30px;
+}
