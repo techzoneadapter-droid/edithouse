@@ -9,6 +9,7 @@ const DECODER_URL = "https://huggingface.co/g-ronimo/sam2-tiny/resolve/main/sam2
 
 importScripts(ORT_BASE + "ort.all.min.js");
 ort.env.wasm.wasmPaths = ORT_BASE;
+ort.env.wasm.numThreads = 1;
 
 let encoderSession = null;
 let decoderSession = null;
@@ -37,7 +38,7 @@ async function modelBuffer(url) {
 
 async function createSession(model) {
   let lastError = null;
-  for (const provider of ["webgpu", "wasm", "cpu"]) {
+  for (const provider of ["webgpu", "wasm"]) {
     try {
       const session = await ort.InferenceSession.create(model, { executionProviders: [provider] });
       return { session, provider };
