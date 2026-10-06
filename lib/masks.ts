@@ -1,6 +1,6 @@
 export type Point = [number, number];
 export type MaskStroke = { points: Point[]; radius: number; erase: boolean };
-export type SurfaceMask = { polygons: Point[][]; strokes: MaskStroke[] };
+export type SurfaceMask = { polygons: Point[][]; excludePolygons?: Point[][]; strokes: MaskStroke[] };
 
 export function validatePolygons(value: unknown): Point[][] {
   if (!Array.isArray(value)) return [];
@@ -19,6 +19,16 @@ export function drawMask(ctx: CanvasRenderingContext2D, mask: SurfaceMask, width
     ctx.closePath();
   }
   ctx.fill('evenodd');
+  if (mask.excludePolygons?.length) {
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.beginPath();
+    for (const polygon of mask.excludePolygons) {
+      polygon.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
+      ctx.closePath();
+    }
+    ctx.fill('nonzero');
+    ctx.globalCompositeOperation = 'source-over';
+  }
   for (const stroke of mask.strokes) {
     ctx.globalCompositeOperation = stroke.erase ? 'destination-out' : 'source-over';
     ctx.strokeStyle = 'white';
