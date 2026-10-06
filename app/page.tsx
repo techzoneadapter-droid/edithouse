@@ -149,7 +149,7 @@ export default function HomePage() {
     try{const response=await fetch('/api/mask/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({imageDataUrl:originalImage,surface:target.name}),signal:controller.signal});const result=await response.json();if(!response.ok)throw new Error(result.error);
       if(controller.signal.aborted||analyzeAbortRef.current!==controller)return;
       if(revision!==manualRevisionRef.current){setError('Đã giữ mask bạn vừa chỉnh; bỏ qua kết quả AI cũ.');return;}
-      setAnalysis(previous=>previous?{...previous,structures:previous.structures.map(s=>s.id===target.id?{...s,mask:{polygons:result.polygons,strokes:[]}}:s)}:previous);setRenderedImage('');
+      setAnalysis(previous=>previous?{...previous,structures:previous.structures.map(s=>s.id===target.id?{...s,mask:{...s.mask,polygons:result.polygons,strokes:[]}}:s)}:previous);setRenderedImage('');
     }catch(e){if(analyzeAbortRef.current===controller){if(timedOut)setError('Đọc kết cấu quá thời gian.');else if(!controller.signal.aborted)setError(e instanceof Error?e.message:'Không phân tích được mask.');}}
     finally{clearTimeout(timer);if(analyzeAbortRef.current===controller){analyzeAbortRef.current=null;setAnalyzing(false);}}
   }
