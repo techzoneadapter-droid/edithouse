@@ -591,7 +591,7 @@ export default function HomePage() {
                   ))}
                 </div>
 
-                <CatalogBrowser colors={allColors.filter(c=>(c.brand||'EditHouse')===(selectedChoice?.brand||'EditHouse')&&(materialFilter==='all'||!!c.brandId||c.material===materialFilter))} collection={selectedChoice?.collection||''} onCollection={collection=>updateChoice(selectedStructure.id,{collection})} onManage={()=>setAppView('catalog')} onChoose={chooseColor} favorites={favorites} recent={recent} onFavorite={id=>setFavorites(prev=>prev.includes(id)?prev.filter(x=>x!==id):[...prev,id])}/>
+                <CatalogBrowser colors={allColors.filter(c=>(c.brand||'EditHouse')===(selectedChoice?.brand||'EditHouse')&&(materialFilter==='all'||!!c.brandId||c.material===materialFilter))} collection={selectedChoice?.collection||''} selectedColorId={selectedChoice?.colorId} onCollection={collection=>updateChoice(selectedStructure.id,{collection})} onManage={()=>setAppView('catalog')} onChoose={chooseColor} favorites={favorites} recent={recent} onFavorite={id=>setFavorites(prev=>prev.includes(id)?prev.filter(x=>x!==id):[...prev,id])}/>
 
                 <div className="custom-color">
                   <div>
