@@ -9,6 +9,7 @@ type Props = {
   surfaceKey: string;
   mask?: SurfaceMask;
   hoverMask?: SurfaceMask;
+  selectionMasks?: SurfaceMask[];
   onChange: (mask: SurfaceMask) => void;
   disabled: boolean;
 };
@@ -19,6 +20,7 @@ export default function MaskEditor({
   surfaceKey,
   mask,
   hoverMask,
+  selectionMasks = [],
   onChange,
   disabled
 }: Props) {
@@ -41,16 +43,35 @@ export default function MaskEditor({
     const canvas = overlay.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d")!;
-    drawMask(ctx, current || hoverMask || mask || { polygons: [], strokes: [] }, canvas.width, canvas.height);
-    ctx.globalCompositeOperation = "source-in";
-    ctx.fillStyle = hoverMask ? "#ffca66" : "#5d8cff";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.globalCompositeOperation = "source-over";
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+
+    const drawTint = (target: SurfaceMask, color: string, alpha: number) => {
+      const temp=document.createElement("canvas");
+      temp.width=canvas.width;
+      temp.height=canvas.height;
+      const tempCtx=temp.getContext("2d");
+      if(!tempCtx)return;
+      drawMask(tempCtx,target,temp.width,temp.height);
+      tempCtx.globalCompositeOperation="source-in";
+      tempCtx.fillStyle=color;
+      tempCtx.fillRect(0,0,temp.width,temp.height);
+      tempCtx.globalCompositeOperation="source-over";
+      ctx.save();
+      ctx.globalAlpha=alpha;
+      ctx.drawImage(temp,0,0);
+      ctx.restore();
+    };
+
+    for(const selectedMask of selectionMasks){
+      drawTint(selectedMask,"#5d8cff",0.18);
+    }
+    if(mask)drawTint(current||mask,"#5d8cff",0.42);
+    if(hoverMask)drawTint(hoverMask,"#ffca66",0.36);
   };
 
   useEffect(() => {
     paint();
-  }, [mask, hoverMask, size]);
+  }, [mask, hoverMask, selectionMasks, size]);
 
   useEffect(() => {
     setZoom(1);
@@ -86,14 +107,12 @@ export default function MaskEditor({
       if (!mask) return;
       const label: 0 | 1 = e.shiftKey || e.button === 2 ? 0 : 1;
       setSamBusy(true);
-      setSamMessage(label ? "SAM2 đang bám biên bề mặt…" : "SAM2 đang loại vùng khỏi mask…");
+      setSamMessage(label ? "Đang bám biên bề mặt…" : "Đang loại vùng khỏi mask…");
       try {
         const result = await getSam2Client().segment(image, point(e), label);
-        onChange({ polygons: [], strokes: result.strokes });
+        onChange({ ...mask, polygons: [], strokes: result.strokes });
         setSamMessage(
-          "SAM2 · " +
-            result.device +
-            " · Bấm thêm để mở rộng, Shift+click/chuột phải để loại cửa, kính hoặc vật che."
+          "Tách biên · " + result.device + " · Bấm thêm để mở rộng, Shift+click/chuột phải để loại cửa, kính hoặc vật che."
         );
       } catch (error) {
         setSamMessage(error instanceof Error ? error.message : "Không tách được vùng bằng SAM2.");
@@ -134,7 +153,7 @@ export default function MaskEditor({
     setShow(true);
     if (next === "sam") {
       getSam2Client().resetPrompts();
-      setSamMessage("Bấm vào giữa bề mặt cần sơn. Shift+click hoặc chuột phải để loại vùng.");
+      setSamMessage("Bấm vào giữa vùng cần chọn. Shift+click hoặc chuột phải để loại vùng.");
     }
   };
 
@@ -148,7 +167,7 @@ export default function MaskEditor({
             className={tool === t ? "active" : ""}
             onClick={() => selectTool(t)}
           >
-            {({ select: "Chọn", sam: "SAM2", brush: "Brush +", erase: "Eraser −", pan: "Pan" })[t]}
+            {({ select: "Chọn", sam: "Tách biên", brush: "Brush +", erase: "Eraser −", pan: "Pan" })[t]}
           </button>
         ))}
         <label>
@@ -241,7 +260,7 @@ export default function MaskEditor({
       )}
       <small>
         {samMessage ||
-          "Dùng SAM2 để bám mép tường/cột/mái, sau đó Brush/Eraser để tinh chỉnh cấu kiện đang chọn."}
+          "Các vùng đã tích được phủ xanh nhạt. Dùng Tách biên hoặc Brush/Eraser để chỉnh vùng hiện tại."}
       </small>
     </div>
   );
