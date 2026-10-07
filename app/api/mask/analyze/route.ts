@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { runRole } from "@/lib/ai/provider";
+import { runArchitectureRefine } from "@/lib/ai/architecture-provider";
 import { splitDataUrl } from "@/lib/image-data";
 import { validatePolygons } from "@/lib/masks";
 import {
@@ -66,14 +66,16 @@ export async function POST(request: Request) {
       "Trả JSON đúng schema."
     ].filter(Boolean).join("\n");
 
-    const response=await runRole("MASK_ANALYZE",async(ai,m)=>{
-      const result=await ai.chat(m.slug,prompt,[imageDataUrl],schema,5000);
-      const raw=result.choices?.[0]?.message?.content;
-      if(typeof raw!=="string")throw new Error("Bộ tách vùng không trả dữ liệu.");
-      return validatePolygons(JSON.parse(raw).polygons);
-    });
+    const response=await runArchitectureRefine(prompt,imageDataUrl,schema,5000);
+    const raw=response.response.choices?.[0]?.message?.content;
+    if(typeof raw!=="string")throw new Error("Bộ tách vùng không trả dữ liệu.");
+    const polygons=validatePolygons(JSON.parse(raw).polygons);
 
-    return NextResponse.json({polygons:response.result,model:response.model});
+    return NextResponse.json({
+      polygons,
+      model:response.model,
+      engine:response.provider==="openai"?"ChatGPT / OpenAI":"Experiential Labs"
+    });
   }catch(e){
     return failure(e);
   }
