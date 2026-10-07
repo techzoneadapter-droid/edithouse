@@ -23,8 +23,8 @@ test('independent catalog persists blank names, sources, brand separation and at
   const source={id:'source-1',name:'page1.png',dataUrl:'data:image/png;base64,test',createdAt:new Date().toISOString(),pageTitle:'Color card'};
   await saveCatalogImport([row('9918'),row('30YY 83/029','Dulux')],[source]);
   let saved=await loadCatalog();assert.equal(saved.brands.length,2);assert.equal(saved.colors.length,2);assert.equal(saved.sourceImages.length,1);
-  assert.equal(saved.colors[0].name,'');assert.equal(saved.colors[0].code,'9918');
-  const firstId=saved.colors[0].id;
+  const saved9918=saved.colors.find(c=>c.code==='9918');assert.ok(saved9918);assert.equal(saved9918.name,'');
+  const firstId=saved9918.id;
   await saveCatalogImport([{...row('9918','jotun',.3),name:'less certain'},row('1024')],[]);
   saved=await loadCatalog();assert.equal(saved.colors.length,3);assert.equal(saved.colors.find(c=>c.code==='9918')?.id,firstId);assert.equal(saved.colors.find(c=>c.code==='9918')?.name,'');
   await saveCatalogImport([{...row('9918','Jotun',.95),name:'Classic White'}],[]);
