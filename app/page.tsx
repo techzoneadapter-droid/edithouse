@@ -175,7 +175,7 @@ export default function HomePage() {
       const dataUrl = await fileToOptimizedDataUrl(file);
       setOriginalImage(dataUrl);
       setReading(false);
-      await analyzeImage(dataUrl);
+      setUploadStage(0);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Không thể tải ảnh.");
     } finally {
@@ -382,7 +382,7 @@ export default function HomePage() {
           <button className="rail-btn" title="Tải ảnh" aria-label="Upload" onClick={() => fileInput.current?.click()}><Upload size={19} /></button>
           <button className={"rail-btn " + (appView === "catalog" ? "active" : "")} title="Màu sơn" aria-label="Palette" onClick={()=>setAppView("catalog")}><Palette size={19} /></button>
           <button className={"rail-btn " + (appView === "layers" ? "active" : "")} title="Kết cấu" aria-label="Layers" onClick={()=>setAppView("layers")}><Layers3 size={19} /></button>
-          <button className={"rail-btn " + (appView === "ai" ? "active" : "")} aria-label="AI" onClick={()=>setAppView("ai")} title={aiStatus?.connected ? `Experiential Labs · Connected\nVision: ${aiStatus.selected?.VISION_ANALYZE || "—"}\nRender: ${aiStatus.selected?.IMAGE_RENDER || "—"}` : "AI chưa kết nối"}><Sparkles size={19} /></button>
+          <button className={"rail-btn " + (appView === "ai" ? "active" : "")} aria-label="AI" onClick={()=>setAppView("ai")} title={aiStatus?.openaiConfigured ? `ChatGPT / OpenAI · ${aiStatus.openaiModel || "Connected"}` : aiStatus?.connected ? "Experiential Labs fallback" : "AI chưa kết nối"}><Sparkles size={19} /></button>
         </div>
         <div className="rail-spacer" />
         <button className={"rail-btn " + (appView === "settings" ? "active" : "")} title="Cài đặt" aria-label="Settings" onClick={()=>setAppView("settings")}><Settings size={19} /></button>
@@ -401,9 +401,21 @@ export default function HomePage() {
           <span className="upload-icon"><ImagePlus size={22} /></span>
           <span className="upload-copy">
             <strong>{fileName || "Tải ảnh công trình"}</strong>
-            <small>JPG, PNG, WEBP · tự nhận diện cấu kiện</small>
+            <small>JPG, PNG, WEBP · tải ảnh trước, tách layer sau</small>
           </span>
           <Plus size={18} />
+        </button>
+
+        <button
+          className="split-house-btn"
+          disabled={!originalImage || analyzing || reading}
+          onClick={() => originalImage && analyzeImage(originalImage)}
+        >
+          {analyzing ? <LoaderCircle className="spin" size={17} /> : <WandSparkles size={17} />}
+          <span>
+            <strong>{structures.length ? "Tách lại thành phần nhà" : "Tách thành phần nhà"}</strong>
+            <small>{aiStatus?.openaiConfigured ? "ChatGPT đọc kiến trúc và tạo layer vùng chọn" : "Kết nối ChatGPT trong AI Settings để tăng độ chính xác"}</small>
+          </span>
         </button>
 
         <div className="section-head">
@@ -411,14 +423,7 @@ export default function HomePage() {
             <span>Layer công trình</span>
             <b>{structures.length}</b>
           </div>
-          <button
-            className="text-action"
-            disabled={!originalImage || analyzing}
-            onClick={() => originalImage && analyzeImage(originalImage)}
-          >
-            {analyzing ? <LoaderCircle className="spin" size={14} /> : <WandSparkles size={14} />}
-            Tách lại vùng
-          </button>
+          {aiStatus?.openaiConfigured && <span className="chatgpt-badge">ChatGPT</span>}
         </div>
 
         {uploadStage>0 && <ol className="upload-progress">{["Đang đọc ảnh","Đang nhận diện kiến trúc","Đang tách bề mặt","Hoàn tất"].map((label,i)=><li key={label} className={uploadStage===i+1?'active':''}>{uploadStage>i+1?'✓ ':''}{label}</li>)}</ol>}
@@ -433,7 +438,7 @@ export default function HomePage() {
           {!originalImage && (
             <div className="empty-list">
               <Layers3 size={22} />
-              <p>Tải ảnh lên để AI tách tường, chỉ, phào, trần, cột, cửa, mái và các bề mặt khác.</p>
+              <p>Tải ảnh rồi bấm “Tách thành phần nhà” để tạo các layer kiến trúc có thể chọn và đổi màu.</p>
             </div>
           )}
 
