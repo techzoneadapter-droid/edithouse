@@ -31,4 +31,10 @@ export async function writeConfig(config: Config) {
   await fs.rename(temp, path.join(directory, 'settings.enc'));
 }
 export function resolveKey(config: Config) { return config.apiKey || process.env.EXPLABS_API_KEY || ''; }
+export function resolveOpenAIKey(config: Config) { return config.openaiApiKey || process.env.OPENAI_API_KEY || ''; }
+export function resolveOpenAIModel(config: Config) {
+  if (config.openaiModel) return config.openaiModel;
+  return config.mode === 'quality' ? 'gpt-6-astra' : config.mode === 'economy' ? 'gpt-5.6-terra' : 'gpt-5.6';
+}
 export function keyPreview(key: string) { return key ? 'xpl_••••••••' + key.slice(-4) : ''; }
+export function openaiKeyPreview(key: string) { return key ? 'sk-••••••••' + key.slice(-4) : ''; }
