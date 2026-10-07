@@ -9,4 +9,10 @@ export type Model = {
   promotional: boolean; preferred: number | null; callable: boolean; roles: Role[]; incompatibleRoles?: Role[];
   promotions?: {label: string; free: boolean; percentOff: number}[];
 };
-export type Config = {apiKey?: string; mode: Mode; overrides: Partial<Record<Role, string>>};
+export type Config = {
+  apiKey?: string;
+  openaiApiKey?: string;
+  openaiModel?: string;
+  mode: Mode;
+  overrides: Partial<Record<Role, string>>;
+};
