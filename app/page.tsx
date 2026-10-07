@@ -126,7 +126,7 @@ export default function HomePage() {
     let timedOut=false;const timer=setTimeout(()=>{timedOut=true;controller.abort();},60000);
     setAnalyzing(true);setUploadStage(2);setError('');
     try{
-      const response=await fetch('/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({imageDataUrl}),signal:controller.signal});
+      const response=await fetch('/api/analyze-house',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({imageDataUrl}),signal:controller.signal});
       const data=await response.json();if(!response.ok)throw new Error(data.error||'Không thể phân tích công trình.');
       if(controller.signal.aborted||analyzeAbortRef.current!==controller)return;
       const result=data as AnalyzeResult;
@@ -146,7 +146,7 @@ export default function HomePage() {
     if(!selectedStructure||analyzing||rendering)return;
     const target=selectedStructure,revision=manualRevisionRef.current,controller=new AbortController();analyzeAbortRef.current=controller;
     let timedOut=false;const timer=setTimeout(()=>{timedOut=true;controller.abort();},60000);setAnalyzing(true);setError('');
-    try{const response=await fetch('/api/mask/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({imageDataUrl:originalImage,surface:target.name}),signal:controller.signal});const result=await response.json();if(!response.ok)throw new Error(result.error);
+    try{const response=await fetch('/api/refine-part',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({imageDataUrl:originalImage,surface:target.name}),signal:controller.signal});const result=await response.json();if(!response.ok)throw new Error(result.error);
       if(controller.signal.aborted||analyzeAbortRef.current!==controller)return;
       if(revision!==manualRevisionRef.current){setError('Đã giữ mask bạn vừa chỉnh; bỏ qua kết quả AI cũ.');return;}
       setAnalysis(previous=>previous?{...previous,structures:previous.structures.map(s=>s.id===target.id?{...s,mask:{...s.mask,polygons:result.polygons,strokes:[]}}:s)}:previous);setRenderedImage('');
@@ -299,7 +299,7 @@ export default function HomePage() {
     setRendering(true);
     setError("");
     try {
-      const response = await fetch("/api/render", {
+      const response = await fetch("/api/apply-color", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
