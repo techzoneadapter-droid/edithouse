@@ -8,7 +8,7 @@ import {
 } from "@/lib/architecture-knowledge";
 import { NextRequest, NextResponse } from "next/server";
 import { splitDataUrl } from "@/lib/image-data";
-import { runRole } from "@/lib/ai/provider";
+import { runArchitectureVision } from "@/lib/ai/architecture-provider";
 import { failure, localRequest } from "@/lib/ai/http";
 
 export const runtime = "nodejs";
@@ -175,12 +175,10 @@ export async function POST(request: NextRequest) {
       "Trả JSON đúng schema, không markdown, không giải thích."
     ].join("\n");
 
-    const { result: parsed } = await runRole("VISION_ANALYZE", async (ai, model) => {
-      const response = await ai.chat(model.slug, prompt, [imageDataUrl], schema, 7000);
-      const raw = response.choices?.[0]?.message?.content;
-      if (typeof raw !== "string") throw new Error("Model không trả dữ liệu phân vùng.");
-      return JSON.parse(raw);
-    });
+    const vision = await runArchitectureVision(prompt, imageDataUrl, schema, 7000);
+    const raw = vision.response.choices?.[0]?.message?.content;
+    if (typeof raw !== "string") throw new Error("Model không trả dữ liệu phân vùng.");
+    const parsed = JSON.parse(raw);
 
     const recognized = (Array.isArray(parsed.parts) ? parsed.parts : [])
       .map((item: any) => {
@@ -271,7 +269,9 @@ export async function POST(request: NextRequest) {
         `Đã tạo ${structures.length} vùng chọn kiến trúc và tự loại vật thể không thuộc công trình.`,
         180
       ),
-      structures
+      structures,
+      engine: vision.provider === "openai" ? "ChatGPT / OpenAI" : "Experiential Labs",
+      model: vision.model
     });
   } catch (error) {
     return failure(error);
